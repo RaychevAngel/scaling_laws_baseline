@@ -1,270 +1,12 @@
 import asyncio
 import traceback
-from mcts_search import MCTSNode
+from mcts.mcts import MCTSForest
 from typing import Callable, List, Dict, Tuple
 import random
 import time
 from policy_value_fn import PolicyValueModel
 from config_evaluate import get_config
 
-class MCTSTree_Evaluate:
-    """Single MCTS tree for exploring solutions to a question."""
-    
-    def __init__(self, root_value: float, question: str, max_expansions: int, 
-                 exploration_constant: float, request_queue):
-        self.root = MCTSNode(state="", parent=None, visit_count=0, 
-                            action_value=root_value, value_estimate=root_value)
-        self.question = question
-        self.exploration_constant = exploration_constant
-        self.request_queue = request_queue
-        self.expansion_count = 0
-        self.max_expansions = max_expansions  
-        self.non_terminal_leaves = [self.root]
-        self.terminal_leaves = []
-
-    async def get_action_values(self, node: MCTSNode) -> list[tuple[str, float]]:
-        """Get action-value pairs from policy-value network."""
-        future = asyncio.Future()
-        await self.request_queue.put((self.question, node.state, future))
-        try:
-            return await asyncio.wait_for(future, timeout=60)
-        except asyncio.TimeoutError:
-            print(f"Error: No response after 60s at {node.state}.")
-            return []
-
-    def select_child(self, node: MCTSNode) -> MCTSNode:
-        """Select best child using UCB1 formula."""
-        ucb1 = lambda child: (child.action_value + 
-                            self.exploration_constant * (node.visit_count ** 0.5) / 
-                            (child.visit_count + 1))
-        return max(node.children, key=ucb1)
-
-    def backpropagate(self, node: MCTSNode, value: float):
-        """Update node statistics from leaf to root."""
-        while node:
-            node.visit_count += 1
-            node.action_value += (value - node.action_value) / node.visit_count
-            node = node.parent
-
-    def get_favourite_trajectory(self) -> int:
-        """Track the favourite trajectory through the tree and record result."""
-        current = self.root
-        while current.has_children:
-            current = current.favourite_child
-        success = int(current.evaluate_terminal_state(self.question)) if current.is_terminal else 0
-        return int(success)
-
-    async def search(self):
-        """Perform MCTS search and collect training data."""
-        current = self.root
-        while (self.expansion_count < self.max_expansions and self.non_terminal_leaves):
-            if current.has_children:
-                current = self.select_child(current)
-            elif current.is_terminal:
-                self.backpropagate(current, current.value_estimate)
-                current = self.root
-            elif not current.is_visited:
-                self.backpropagate(current, current.value_estimate)
-                current = self.root
-            else:
-                try:
-                    new_states = await self.get_action_values(current)
-                    current.add_children(new_states)
-                    for child in current.children:
-                        if child.is_terminal:
-                            self.terminal_leaves.append(child)
-                        else:
-                            self.non_terminal_leaves.append(child)
-                    self.non_terminal_leaves.remove(current)
-                    self.expansion_count += 1
-                except Exception as e:
-                    print(f"Expansion error: {e}")
-                    break
-            await asyncio.sleep(0)
-
-        return self.get_favourite_trajectory()
-        
-class MCTSForest_Evaluate:
-    """Forest of MCTS trees for parallel exploration of multiple questions."""
-    
-    def __init__(self, initial_values: list[float], questions: list[str],
-                 max_expansions: int, num_trees: int, 
-                 exploration_constant: float, policy_value_fn: Callable,
-                 batch_size: int, batch_interval: float):
-        # Initialize forest parameters
-        self.initial_values = initial_values
-        self.questions = questions
-        self.max_expansions = max_expansions
-        self.num_trees = num_trees
-        self.exploration_constant = exploration_constant
-        
-        # Set network functions
-        self.policy_value_fn = policy_value_fn
-        
-        # Set up batch processing
-        self.request_queue = asyncio.Queue()
-        self.batch_size = batch_size
-        self.batch_interval = batch_interval
-        self.total_api_calls = 0
-        
-        # Initialize tracking structures
-        self.results = {}
-        self.completed_count = 0 
-        self.start_time = None
-        
-        # Add list of configurations to process
-        self.left_questions = [q for q in questions]
-        self.config_lock = asyncio.Lock()
-        
-        # Initialize trees
-        self.trees = self._initialize_trees()
-
-    def _initialize_trees(self) -> List[MCTSTree_Evaluate]:
-        """Initialize the forest with trees for each spot."""
-        trees = []
-        for i in range(self.num_trees):
-            question_idx = i % len(self.questions)
-            question = self.questions[question_idx]
-            trees.append(self._create_tree(question_idx, question))
-        return trees
-
-    def _create_tree(self, question_idx: int, question: str) -> MCTSTree_Evaluate:
-        """Create a new MCTS tree."""
-        return MCTSTree_Evaluate(
-            root_value=self.initial_values[question_idx],
-            question=question,
-            max_expansions=self.max_expansions,
-            exploration_constant=self.exploration_constant,
-            request_queue=self.request_queue
-        )
-
-    async def _batch_processor(self):
-        """Process policy-value network requests in batches."""
-        batch, futures = [], []
-        print("Starting batch processor")
-        
-        while True:
-            # Check if we should exit before waiting for a request
-            if self.request_queue.empty() and all(task.done() for task in self.tree_spot_tasks):
-                break
-            
-            try:
-                # Use a shorter timeout to check exit conditions more frequently
-                request = await asyncio.wait_for(self.request_queue.get(), timeout=0.1)
-                batch.append((request[0], request[1]))
-                futures.append(request[2])
-                
-                # Process batch if full or queue is empty
-                if len(batch) >= self.batch_size or (batch and self.request_queue.empty()):
-                    # Update API calls count
-                    self.total_api_calls += len(batch)
-                    
-                    # Process current batch
-                    current_batch, current_futures = batch, futures
-                    batch, futures = [], []  # Reset for next batch
-                    asyncio.create_task(self._process_network_requests(current_batch, current_futures))
-                
-            except asyncio.TimeoutError:
-                # Just continue the loop, which will check exit conditions again
-                pass
-            
-            await asyncio.sleep(0.001)
-        
-        print("Batch processor shutting down")
-
-    async def _process_network_requests(self, batch: list, futures: list):
-        """Process batch of requests through policy-value network."""
-        try:
-            # Get predictions from policy-value network
-            results = self.policy_value_fn(batch)
-            
-            # Distribute results to waiting futures
-            for future, result in zip(futures, results):
-                if not future.done():
-                    future.set_result(result)
-                    
-        except Exception as e:
-            print(f"Network request error: {e}")
-            self._handle_batch_error(futures, e)
-
-    def _handle_batch_error(self, futures: list, error: Exception):
-        """Handle errors in batch processing."""
-        for future in futures:
-            if not future.done():
-                future.set_exception(error)
-
-    async def _run_tree_spot(self, spot_index: int):
-        """Manage a single tree spot in the forest."""
-        while True:
-            current_question = None
-            try:
-                # Get current tree and process it
-                tree = self.trees[spot_index]
-                current_question = tree.question
-                success = await tree.search()
-                
-                # Record result
-                self.results[current_question] = success
-                self.completed_count += 1
-                
-                # Update tree with next question or break if no more questions
-                next_question = await self._select_next_question()
-                if next_question is None:
-                    # No more questions to process
-                    break
-                    
-                await self._update_tree_spot(spot_index, next_question)
-                
-            except Exception as e:
-                await self._handle_spot_error(spot_index, current_question, e)
-                await asyncio.sleep(1)
-
-    async def _select_next_question(self) -> str:
-        """Select next question to process based on available questions."""
-        async with self.config_lock:
-            # If there are questions left, take one
-            if self.left_questions:
-                next_question = self.left_questions.pop(0)
-                return next_question
-            else:
-                # No more questions to process
-                return None
-
-    async def _update_tree_spot(self, spot_index: int, question: str):
-        """Update tree spot with new question."""
-        question_idx = self.questions.index(question)
-        self.trees[spot_index] = self._create_tree(question_idx, question)
-
-    async def _handle_spot_error(self, spot_index: int, question: str, error: Exception):
-        """Handle errors in tree spot processing."""
-        print(f"Spot {spot_index} error: {type(error).__name__}: {str(error)}")
-        print(f"Current question: {question}")
-        traceback.print_exc()
-
-    def get_average_success_rate(self) -> float:
-        """Calculate the average success rate across all evaluated questions."""
-        if not self.results:
-            return 0.0
-        
-        total_success = sum(self.results.values())
-        return total_success / len(self.results)
-
-    async def run_forest(self):
-        """Run the MCTS forest with parallel tree processing."""
-        self.start_time = time.time()
-        
-        # Create and store tasks so we can check their status
-        self.tree_spot_tasks = [asyncio.create_task(self._run_tree_spot(i)) for i in range(len(self.trees))]
-        batch_processor = asyncio.create_task(self._batch_processor())
-        
-        # Wait for all tree spots to complete
-        await asyncio.gather(*self.tree_spot_tasks)
-        
-        # Wait for batch processor to finish processing any remaining requests
-        await batch_processor
-        
-        # Return the average success rate when all questions are processed
-        return self.get_average_success_rate()
 
 
 class Run_MCTS_Evaluate:
@@ -300,7 +42,7 @@ class Run_MCTS_Evaluate:
         initial_states = [(q, "") for q in self.questions]
         return model.batch_value_estimate(initial_states)
 
-    def _initialize_search(self) -> MCTSForest_Evaluate:
+    def _initialize_search(self) -> MCTSForest:
         """Initialize MCTS forest."""
         policy_value_model = self._initialize_model()
         initial_values = self._get_initial_values(policy_value_model)
@@ -313,7 +55,7 @@ class Run_MCTS_Evaluate:
                 for q, s in questions_states
             ])
         
-        return MCTSForest_Evaluate(
+        return MCTSForest(
             initial_values=initial_values,
             questions=self.questions,
             max_expansions=forest_config['max_expansions'],
@@ -420,27 +162,58 @@ async def main(value_size: int, policy_size: int, branch_factor: int, num_expans
     try:
         print("Starting evaluation...")
         average_success_rate = await evaluator.start_evaluation()
-        print(f"Final average success rate: {average_success_rate:.2%}")
+        print(f"value_size={value_size}, policy_size={policy_size}, branch_factor={branch_factor}, num_expansions={num_expansions}, temperature={temperature}, c_explore={c_explore}, average_success_rate={average_success_rate:.2%}")
     except KeyboardInterrupt:
         await evaluator.stop_evaluation()
+        
 
 if __name__ == "__main__":
-    asyncio.run(main(0, 1700, 1, 4, 0.1, 0.3))
-    print("None, 1700 1, 4 done")
-    
-    asyncio.run(main(135, 135, 1, 64, 0.3, 0.3))
-    print("135, 135 1, 64 done")
-    asyncio.run(main(135, 135, 2, 32, 0.3, 0.3))
-    print("135, 135 2, 32 done")
-    asyncio.run(main(135, 135, 3, 21, 0.3, 0.3))
-    print("135, 135 3, 21 done")
-    asyncio.run(main(135, 135, 4, 16, 0.3, 0.3))
-    print("135, 135 4, 16 done")
-    asyncio.run(main(135, 135, 5, 13, 0.3, 0.3))
-    print("135, 135 5, 13 done")
-    asyncio.run(main(135, 135, 6, 11, 0.3, 0.3))
-    print("135, 135 6, 11 done")
-    asyncio.run(main(135, 135, 7, 9, 0.7, 0.2))
-    print("135, 135 7, 9 done")
-    
+    for i in range(1):
+        asyncio.run(main(135, 135, 6, 43, 1.0, 0.3))
+        asyncio.run(main(135, 135, 7, 37, 1.0, 0.3))
+        asyncio.run(main(135, 135, 8, 32, 1.0, 0.3))
+        asyncio.run(main(135, 135, 9, 28, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 8, 64, 1.0, 0.3))
+        asyncio.run(main(135, 135, 10, 51, 1.0, 0.3))
+        asyncio.run(main(135, 135, 12, 43, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 12, 85, 1.0, 0.3))
+        asyncio.run(main(135, 135, 14, 73, 1.0, 0.3))
+        asyncio.run(main(135, 135, 16, 64, 1.0, 0.3))
+        asyncio.run(main(135, 135, 18, 57, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 20, 102, 1.0, 0.3))
+    for j in range(2):
+        asyncio.run(main(135, 135, 2, 8, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 2, 16, 1.0, 0.3))
+        asyncio.run(main(135, 135, 3, 11, 1.0, 0.3))
+        asyncio.run(main(135, 135, 4, 8, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 3, 21, 1.0, 0.3))
+        asyncio.run(main(135, 135, 4, 16, 1.0, 0.3))
+        asyncio.run(main(135, 135, 5, 13, 1.0, 0.3))
+        asyncio.run(main(135, 135, 6, 11, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 5, 26, 1.0, 0.3))
+        asyncio.run(main(135, 135, 6, 21, 1.0, 0.3))
+        asyncio.run(main(135, 135, 7, 18, 1.0, 0.3))
+        asyncio.run(main(135, 135, 8, 16, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 6, 43, 1.0, 0.3))
+        asyncio.run(main(135, 135, 7, 37, 1.0, 0.3))
+        asyncio.run(main(135, 135, 8, 32, 1.0, 0.3))
+        asyncio.run(main(135, 135, 9, 28, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 8, 64, 1.0, 0.3))
+        asyncio.run(main(135, 135, 10, 51, 1.0, 0.3))
+        asyncio.run(main(135, 135, 12, 43, 1.0, 0.3))
+
+        asyncio.run(main(135, 135, 12, 85, 1.0, 0.3))
+        asyncio.run(main(135, 135, 14, 73, 1.0, 0.3))
+        asyncio.run(main(135, 135, 16, 64, 1.0, 0.3))
+        asyncio.run(main(135, 135, 18, 57, 1.0, 0.3))
+        
+        asyncio.run(main(135, 135, 20, 102, 1.0, 0.3))
     

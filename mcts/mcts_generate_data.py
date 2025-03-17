@@ -4,10 +4,10 @@ import time
 from datetime import datetime
 from typing import Dict, List, Tuple
 
-from mcts_search import MCTSForest
+from mcts.mcts import MCTSForest
 from policy_value_fn import PolicyValueModel
 from trajectory_processor import TrajectoryProcessor
-from config_train import get_config
+from mcts.config_data_collection import get_config
 
 
 class MCTSDataCollector:
