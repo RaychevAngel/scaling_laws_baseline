@@ -516,9 +516,11 @@ class Run_MCTS_Forest:
                 train_data = await self.forest_train.run_forest()
                 val_data = await self.forest_val.run_forest()
                 self.export_training_data(train_data, val_data)
+                print("Total API calls: ", self.total_api_calls)
             else:
                 accuracy = await self.forest_test.run_forest()
                 self.export_evaluation_data(accuracy)
+                print("Accuracy: ", accuracy)
         finally:
             monitor_task.cancel()
             try:

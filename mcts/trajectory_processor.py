@@ -107,6 +107,12 @@ class TrajectoryProcessor:
         train_value_data = self.process_value_trajectory(train_value_tuples)
         val_policy_data = self.process_policy_trajectory(val_policy_tuples)
         val_value_data = self.process_value_trajectory(val_value_tuples)
+
+        # Write the data to files
+        #self._write_data_to_file(train_policy_data, output_paths['train_policy_data_path'], "train_policy_data")
+        #self._write_data_to_file(train_value_data, output_paths['train_value_data_path'], "train_value_data")
+        #self._write_data_to_file(val_policy_data, output_paths['val_policy_data_path'], "val_policy_data")
+        #self._write_data_to_file(val_value_data, output_paths['val_value_data_path'], "val_value_data")
         
         # Create Hugging Face datasets from the processed data
         policy_output_dir = os.path.join(os.path.dirname(output_paths['train_policy_data_path']), "policy_ds")
