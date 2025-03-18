@@ -87,6 +87,11 @@ def get_config(is_training=None, iteration=None,
     """
     config = DEFAULT_CONFIG.copy()
     
+    # Update training configuration
+    config.update({
+        'is_training': is_training or config['is_training']
+    })
+
     # Update iteration
     iter_num = iteration or config['iteration']
     config['iteration'] = iter_num

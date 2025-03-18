@@ -63,9 +63,7 @@ class MCTSTree:
     """Single MCTS tree for exploring solutions to a question."""
     
     def __init__(self, root_value: float, question: str, max_expansions: int, 
-                 c_explore: float, request_queue, is_training: bool,
-                 process_policy_trajectory: Callable | None,
-                 process_value_trajectory: Callable | None):
+                 c_explore: float, request_queue, is_training: bool):
         
         self.is_training = is_training
 
@@ -80,8 +78,6 @@ class MCTSTree:
         if self.is_training:
             self.policy_training_data = []
             self.value_training_data = []
-            self.process_policy_trajectory = process_policy_trajectory
-            self.process_value_trajectory = process_value_trajectory
 
     async def get_action_values(self, node: MCTSNode) -> list[tuple[str, float]]:
         """Get action-value pairs from policy-value network."""
@@ -114,15 +110,12 @@ class MCTSTree:
             current = current.favourite_child
         return int(current.evaluate_terminal_state(self.question))
     
-    def process_trajectories(self, question: str, policy_data: list, value_data: list):
-        """Process and store trajectories as training data."""
-        unique_value_data = list(set(value_data))
+    def deduplicate_trajectories(self, policy_data: list, value_data: list):
+        """Deduplicate trajectories and store them as training data."""
+        value_data = list(set(value_data))
         if policy_data:
-            policy_data = random.choices(policy_data, k=len(unique_value_data))
-        
-        processed_policy_data = self.process_policy_trajectory(question, policy_data)
-        processed_value_data = self.process_value_trajectory(question, unique_value_data)
-        return processed_policy_data, processed_value_data
+            policy_data = random.choices(policy_data, k=len(value_data))
+        return policy_data, value_data
 
     async def search(self):
         """Perform MCTS search and collect training data."""
@@ -132,11 +125,13 @@ class MCTSTree:
                 current = self.select_child(current)
             elif current.is_terminal:
                 if self.is_training:
-                    value = current.evaluate_terminal_state(self.question)
-                    self.value_training_data.append((current.state, value))
-                    if value:    
-                        self.policy_training_data.append(current.state)
-                self.backpropagate(current, value)
+                    label = current.evaluate_terminal_state(self.question)
+                    self.value_training_data.append((self.question, current.state, label))
+                    if label:    
+                        self.policy_training_data.append((self.question, current.state))
+                    self.backpropagate(current, label)
+                else:
+                    self.backpropagate(current, current.value_estimate)
                 current = self.root
             elif not current.is_visited:
                 self.backpropagate(current, current.value_estimate)
@@ -156,7 +151,7 @@ class MCTSTree:
             await asyncio.sleep(0)
 
         if self.is_training:
-            return self.process_trajectories(self.question, self.policy_training_data, self.value_training_data)
+            return self.deduplicate_trajectories(self.policy_training_data, self.value_training_data)
         else:
             return self.evaluate_tree()
 
@@ -169,8 +164,6 @@ class MCTSForest:
     def __init__(self, initial_values: Dict[str, float], questions: List[str],
                  max_expansions: int, num_trees: int, c_explore: float, 
                  policy_value_fn: Callable, target_examples: int | None,
-                 process_policy_trajectory: Callable | None,
-                 process_value_trajectory: Callable | None,
                  batch_size: int, is_training: bool):
         
         self.is_training = is_training
@@ -185,8 +178,6 @@ class MCTSForest:
         
         # Set network functions
         self.policy_value_fn = policy_value_fn
-        self.process_policy_trajectory = process_policy_trajectory
-        self.process_value_trajectory = process_value_trajectory
         
         # Initialize data collection
         if self.is_training:
@@ -232,9 +223,7 @@ class MCTSForest:
             max_expansions=self.max_expansions,
             c_explore=self.c_explore,
             request_queue=self.request_queue,
-            is_training=self.is_training,
-            process_policy_trajectory=self.process_policy_trajectory,
-            process_value_trajectory=self.process_value_trajectory
+            is_training=self.is_training
         )
 
     async def _batch_processor(self):
@@ -444,16 +433,12 @@ class Run_MCTS_Forest:
                 initial_values=train_initial_values,
                 questions=self.questions_train,
                 target_examples=self.config['target_examples_train'],
-                process_policy_trajectory=self.trajectory_processor.process_policy_trajectory,
-                process_value_trajectory=self.trajectory_processor.process_value_trajectory,
                 **common_params
             )
             forest_val = MCTSForest(
                 initial_values=val_initial_values,
                 questions=self.questions_val,
                 target_examples=self.config['target_examples_val'],
-                process_policy_trajectory=self.trajectory_processor.process_policy_trajectory,
-                process_value_trajectory=self.trajectory_processor.process_value_trajectory,
                 **common_params
             )
             return forest_train, forest_val, None
@@ -471,27 +456,8 @@ class Run_MCTS_Forest:
         
         This function is used only if is_training is True.
         """
-        
-        def write_data_to_file(data: List, file_path: str, data_type: str):
-            """Helper function to write data to a specified file path."""
-            try:
-                with open(file_path, 'a') as f:
-                    for item in data:
-                        f.write(json.dumps(item) + '\n')
-                print(f"{data_type} data exported to {file_path}")
-            except Exception as e:
-                print(f"Error exporting {data_type} data: {e}")
+        self.trajectory_processor.export_data(train_data, val_data, self.config['output_data_paths'])
 
-        # Define paths and data types
-        data_export_info = [
-            (train_data[0], self.config['output_data_paths']['train_policy_data_path'], "Train Policy"),
-            (train_data[1], self.config['output_data_paths']['val_policy_data_path'], "Val Policy"),
-            (val_data[0], self.config['output_data_paths']['train_value_data_path'], "Train Value"),
-            (val_data[1], self.config['output_data_paths']['val_value_data_path'], "Val Value")
-        ]
-        # Export all data
-        for data, file_path, data_type in data_export_info:
-            write_data_to_file(data, file_path, data_type)
     
     def export_evaluation_data(self, accuracy: float) -> None:
         """Export evaluation data to a CSV file."""
