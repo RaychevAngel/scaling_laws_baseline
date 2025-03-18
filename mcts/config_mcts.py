@@ -44,8 +44,8 @@ DEFAULT_CONFIG = {
     'c_explore': 0.3,
     
     # Training configuration
-    'target_examples_train': 20000,
-    'target_examples_val': 2000,
+    'target_examples_train': 10000,
+    'target_examples_val': 1000,
     
     # File paths configuration
     'input_data_paths': {  # Paths from which data is read

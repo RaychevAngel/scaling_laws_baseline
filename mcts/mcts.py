@@ -5,7 +5,7 @@ import time
 import asyncio
 from trajectory_processor import TrajectoryProcessor
 from policy_value_fn import PolicyValueModel
-import json
+from config_mcts import get_config
 import csv
 
 class MCTSNode:
@@ -528,5 +528,10 @@ class Run_MCTS_Forest:
             except asyncio.CancelledError:
                 pass
 
+def main(branch_factor: int, max_expansions: int):
+    config = get_config(branch_factor=branch_factor, max_expansions=max_expansions)
+    run_mcts_forest = Run_MCTS_Forest(config)
+    run_mcts_forest.run()
 
-
+if __name__ == "__main__":
+    main(branch_factor=3, max_expansions=20)
