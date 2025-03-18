@@ -4,6 +4,9 @@ Configuration for MCTS training and evaluation.
 
 # Default configuration
 DEFAULT_CONFIG = {
+    # Training configuration
+    'is_training': True,
+    
     # Iteration configuration
     'iteration': 1,  # default iteration for output data paths
 
@@ -36,12 +39,13 @@ DEFAULT_CONFIG = {
     
     # Tree configuration
     'branch_factor': 3,
-    'num_expansions': 20,
+    'max_expansions': 20,
     'temperature': 1.0,
     'c_explore': 0.3,
     
     # Training configuration
-    'target_examples': 20000,
+    'target_examples_train': 20000,
+    'target_examples_val': 2000,
     
     # File paths configuration
     'input_data_paths': {  # Paths from which data is read
@@ -54,13 +58,15 @@ DEFAULT_CONFIG = {
         'val_policy_data_path': '../data/iter{}/{}_{}/policy_validation_data.jsonl',
         'train_value_data_path': '../data/iter{}/{}_{}/value_training_data.jsonl',
         'val_value_data_path': '../data/iter{}/{}_{}/value_validation_data.jsonl',
+        'evaluation_stats': '../eval/eval_stats.csv',
     },
+    'stats_interval': 30,
 }
 
-def get_config(iteration=None, 
+def get_config(is_training=None, iteration=None, 
                policy_size=None, value_size=None, 
                num_trees=None, batch_size=None, 
-               branch_factor=None, num_expansions=None, temperature=None, 
+               branch_factor=None, max_expansions=None, temperature=None, 
                c_explore=None):
     """
     Get configuration dictionary.
@@ -72,7 +78,7 @@ def get_config(iteration=None,
         num_trees (int, optional): Number of trees in the forest
         batch_size (int, optional): Batch size for processing
         branch_factor (int, optional): Branch factor for MCTS
-        num_expansions (int, optional): Maximum number of expansions
+        max_expansions (int, optional): Maximum number of expansions
         temperature (float, optional): Temperature parameter
         c_explore (float, optional): Exploration constant
     
@@ -113,7 +119,7 @@ def get_config(iteration=None,
     # Update tree parameters
     config.update({
         'branch_factor': branch_factor or config['branch_factor'],
-        'num_expansions': num_expansions or config['num_expansions'],
+        'max_expansions': max_expansions or config['max_expansions'],
         'temperature': temperature or config['temperature'],
         'c_explore': c_explore or config['c_explore']
     })

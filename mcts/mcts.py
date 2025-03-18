@@ -1,8 +1,12 @@
-from typing import Self, Callable, List
+from typing import Self, Callable, List, Dict, Tuple
 import random
 import re
 import time
 import asyncio
+from trajectory_processor import TrajectoryProcessor
+from policy_value_fn import PolicyValueModel
+import json
+import csv
 
 class MCTSNode:
     """Node in the Monte Carlo Tree Search."""
@@ -59,7 +63,7 @@ class MCTSTree:
     """Single MCTS tree for exploring solutions to a question."""
     
     def __init__(self, root_value: float, question: str, max_expansions: int, 
-                 exploration_constant: float, request_queue, is_training: bool,
+                 c_explore: float, request_queue, is_training: bool,
                  process_policy_trajectory: Callable | None,
                  process_value_trajectory: Callable | None):
         
@@ -69,7 +73,7 @@ class MCTSTree:
         self.question = question
         self.expansion_count = 0
         self.max_expansions = max_expansions
-        self.exploration_constant = exploration_constant
+        self.c_explore = c_explore
         self.request_queue = request_queue
         self.non_terminal_leaves = [self.root]
 
@@ -92,7 +96,7 @@ class MCTSTree:
     def select_child(self, node: MCTSNode) -> MCTSNode:
         """Select best child using UCB1 formula."""
         ucb1 = lambda child: (child.action_value + 
-                            self.exploration_constant * (node.visit_count ** 0.5) / 
+                            self.c_explore * (node.visit_count ** 0.5) / 
                             (child.visit_count + 1))
         return max(node.children, key=ucb1)
 
@@ -156,24 +160,28 @@ class MCTSTree:
         else:
             return self.evaluate_tree()
 
+
+
+
 class MCTSForest:
     """Forest of MCTS trees for parallel exploration of multiple questions."""
     
-    def __init__(self, initial_values: list[float], questions: list[str],
-                 max_expansions: int, num_trees: int, exploration_constant: float, 
+    def __init__(self, initial_values: Dict[str, float], questions: List[str],
+                 max_expansions: int, num_trees: int, c_explore: float, 
                  policy_value_fn: Callable, target_examples: int | None,
                  process_policy_trajectory: Callable | None,
                  process_value_trajectory: Callable | None,
                  batch_size: int, is_training: bool):
         
         self.is_training = is_training
+        
 
         # Initialize forest parameters
         self.initial_values = initial_values
         self.questions = questions
         self.max_expansions = max_expansions
         self.num_trees = num_trees
-        self.exploration_constant = exploration_constant
+        self.c_explore = c_explore
         
         # Set network functions
         self.policy_value_fn = policy_value_fn
@@ -184,12 +192,9 @@ class MCTSForest:
         if self.is_training:
             self.policy_training_data = []
             self.value_training_data = []
-            self.policy_data_counts = {q: 0 for q in questions}
-            self.value_data_counts = {q: 0 for q in questions}
             self.target_examples = target_examples
         else:
             self.results = {}
-            self.completed_count = 0 
             self.left_questions = [q for q in questions]
             self.config_lock = asyncio.Lock()
 
@@ -197,29 +202,35 @@ class MCTSForest:
         self.request_queue = asyncio.Queue()
         self.batch_size = batch_size
         
-        # Track API usage and runtime
-        self.total_api_calls = 0
+        # Track runtime
         self.start_time = time.time()
-        
+        self.total_api_calls = 0
+
         # Create initial trees
         self.trees = self._initialize_trees()
 
     def _initialize_trees(self) -> List[MCTSTree]:
         """Initialize the forest with trees for each spot."""
         trees = []
-        for i in range(self.num_trees):
-            question_idx = i % len(self.questions)
-            question = self.questions[question_idx]
-            trees.append(self._create_tree(question_idx, question))
+        for _ in range(self.num_trees):
+            if self.is_training:
+                question = random.choice(self.questions)
+            else:
+                if self.left_questions:
+                    question = self.left_questions.pop(0)
+                else:
+                    break
+
+            trees.append(self._create_tree(question))
         return trees
 
-    def _create_tree(self, question_idx: int, question: str) -> MCTSTree:
+    def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree."""
         return MCTSTree(
-            root_value=self.initial_values[question_idx],
+            root_value=self.initial_values[question],  # Access initial value directly
             question=question,
             max_expansions=self.max_expansions,
-            exploration_constant=self.exploration_constant,
+            c_explore=self.c_explore,
             request_queue=self.request_queue,
             is_training=self.is_training,
             process_policy_trajectory=self.process_policy_trajectory,
@@ -271,7 +282,7 @@ class MCTSForest:
             current_question = None
             try:
                 if self.is_training:
-                    if len(self.policy_training_data) >= self.target_examples:
+                    if len(self.value_training_data) >= self.target_examples:
                         break
                 else:
                     if len(self.results) >= len(self.questions):
@@ -286,11 +297,8 @@ class MCTSForest:
                     policy_data, value_data = result
                     self.policy_training_data.extend(policy_data)
                     self.value_training_data.extend(value_data)
-                    self.policy_data_counts[current_question] += len(policy_data)
-                    self.value_data_counts[current_question] += len(value_data)
                 else:
                     self.results[current_question] = result
-                    self.completed_count += 1
                 
                 # Update tree with next question
                 next_question = await self._select_next_question(current_question)
@@ -300,7 +308,7 @@ class MCTSForest:
                 await self._handle_spot_error(spot_index, current_question, e)
                 await asyncio.sleep(1)
 
-    async def _select_next_question(self, current_question: str) -> str:
+    async def _select_next_question(self) -> str:
         """Select next question to process based on data counts."""
         if self.is_training:
             return random.choice(self.questions)
@@ -314,14 +322,14 @@ class MCTSForest:
 
     def _update_tree_spot(self, spot_index: int, question: str):
         """Update tree spot with new question."""
-        question_idx = list(self.policy_data_counts.keys()).index(question)
-        self.trees[spot_index] = self._create_tree(question_idx, question)
+        self.trees[spot_index] = self._create_tree(question)
 
     async def _handle_spot_error(self, spot_index: int, question: str, error: Exception):
         """Handle errors in tree spot processing."""
         print(f"Spot {spot_index} error: {type(error).__name__}: {str(error)}")
         print(f"Current question: {question}")
-        print(f"Stack trace:", exc_info=True)
+        import traceback
+        traceback.print_exc()  # Print the stack trace for more detailed error information
         
         try:
             async with self.config_lock:
@@ -344,5 +352,213 @@ class MCTSForest:
         if self.is_training:
             return self.policy_training_data, self.value_training_data
         else:
-            return sum(self.results.values()) / len(self.results)
+            accuracy = sum(self.results.values()) / len(self.results) if self.results else 0.0
+            return accuracy
+
+
+
+
+class Run_MCTS_Forest:
+    """Run MCTS forest for training or evaluation."""
+    def __init__(self, config: Dict):
+        """Initialize MCTS forest."""
+        self.start_time = time.time()
+        self.config = config
+        self.is_training = self.config['is_training']
+        # Load questions and initialize forests
+        self.questions_train, self.questions_val, self.questions_test = self._load_questions()
+        self.forest_train, self.forest_val, self.forest_test = self._initialize_forest()
+
+        if self.is_training:
+            self.trajectory_processor = TrajectoryProcessor()
+
+    @property
+    def total_api_calls(self) -> int:
+        """Calculate total API calls from training and evaluation forests."""
+        if self.is_training:
+            return self.forest_train.total_api_calls + self.forest_val.total_api_calls
+        else:
+            return self.forest_test.total_api_calls
+
+    def _load_questions(self) -> Tuple[List[str], List[str], List[str]]:
+        """Load questions from configured file based on mode."""
+        try:
+            if self.is_training:
+                train_questions = self._read_questions(self.config['input_data_paths']['train_questions_path'])
+                val_questions = self._read_questions(self.config['input_data_paths']['val_questions_path'])
+                return train_questions, val_questions, []
+            else:
+                test_questions = self._read_questions(self.config['input_data_paths']['test_questions_path'])
+                return [], [], test_questions
+        except FileNotFoundError as e:
+            print(f"Error loading questions: {e}")
+            return [], [], []
+
+    def _read_questions(self, path: str) -> List[str]:
+        """Read questions from a file."""
+        with open(path, 'r') as f:
+            return [line.strip() for line in f]
+
+    def _initialize_model(self) -> PolicyValueModel:
+        """Initialize policy-value network model."""
+        return PolicyValueModel(
+            openai_api_base=self.config['openai_api_base'],
+            openai_api_key=self.config['openai_api_key'],
+            value_api_base_url=self.config['value_api_base'],
+            policy_model=self.config['policy_model']
+        )
+    
+    def _get_initial_values(self, model: PolicyValueModel) -> Tuple[List[float], List[float]]:
+        """Get initial value estimates for all questions."""
+        if self.is_training:
+            train_initial_states = [(q, "") for q in self.questions_train]
+            val_initial_states = [(q, "") for q in self.questions_val]
+            return model.batch_value_estimate(train_initial_states), model.batch_value_estimate(val_initial_states)
+        else:
+            test_initial_states = [(q, "") for q in self.questions_test]
+            return model.batch_value_estimate(test_initial_states), []
+
+    def _initialize_forest(self) -> Tuple[MCTSForest, MCTSForest, MCTSForest]:
+        """Initialize MCTS forest."""
+        policy_value_model = self._initialize_model()
+        
+        def policy_value_fn(questions_states: List[Tuple[str, str]]) -> List[List[Tuple[str, float]]]:
+            return policy_value_model.get_policy_value([
+                (q, s, self.config['branch_factor'], self.config['temperature'])
+                for q, s in questions_states
+            ])
+        
+        # Common parameters for forest initialization
+        common_params = {
+            'max_expansions': self.config['max_expansions'],
+            'num_trees': self.config['num_trees'],
+            'c_explore': self.config['c_explore'],
+            'policy_value_fn': policy_value_fn,
+            'batch_size': self.config['batch_size'],
+            'is_training': self.is_training
+        }
+        
+        if self.is_training:
+            train_initial_values, val_initial_values = self._get_initial_values(policy_value_model)
+            forest_train = MCTSForest(
+                initial_values=train_initial_values,
+                questions=self.questions_train,
+                target_examples=self.config['target_examples_train'],
+                process_policy_trajectory=self.trajectory_processor.process_policy_trajectory,
+                process_value_trajectory=self.trajectory_processor.process_value_trajectory,
+                **common_params
+            )
+            forest_val = MCTSForest(
+                initial_values=val_initial_values,
+                questions=self.questions_val,
+                target_examples=self.config['target_examples_val'],
+                process_policy_trajectory=self.trajectory_processor.process_policy_trajectory,
+                process_value_trajectory=self.trajectory_processor.process_value_trajectory,
+                **common_params
+            )
+            return forest_train, forest_val, None
+        else:
+            test_initial_values, _ = self._get_initial_values(policy_value_model)
+            forest_test = MCTSForest(
+                initial_values=test_initial_values,
+                questions=self.questions_test,
+                **common_params
+            )
+            return None, None, forest_test
+
+    def export_training_data(self, train_data: Tuple[List, List], val_data: Tuple[List, List]) -> None:
+        """Export processed policy and value training data to files.
+        
+        This function is used only if is_training is True.
+        """
+        
+        def write_data_to_file(data: List, file_path: str, data_type: str):
+            """Helper function to write data to a specified file path."""
+            try:
+                with open(file_path, 'a') as f:
+                    for item in data:
+                        f.write(json.dumps(item) + '\n')
+                print(f"{data_type} data exported to {file_path}")
+            except Exception as e:
+                print(f"Error exporting {data_type} data: {e}")
+
+        # Define paths and data types
+        data_export_info = [
+            (train_data[0], self.config['output_data_paths']['train_policy_data_path'], "Train Policy"),
+            (train_data[1], self.config['output_data_paths']['val_policy_data_path'], "Val Policy"),
+            (val_data[0], self.config['output_data_paths']['train_value_data_path'], "Train Value"),
+            (val_data[1], self.config['output_data_paths']['val_value_data_path'], "Val Value")
+        ]
+        # Export all data
+        for data, file_path, data_type in data_export_info:
+            write_data_to_file(data, file_path, data_type)
+    
+    def export_evaluation_data(self, accuracy: float) -> None:
+        """Export evaluation data to a CSV file."""
+        try:
+            # Open the CSV file in append mode
+            with open(self.config['output_data_paths']['evaluation_stats'], 'a', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Write the header if the file is empty
+                if f.tell() == 0:
+                    writer.writerow([
+                        "accuracy", "iteration", "policy_size", "value_size", 
+                        "branch_factor", "max_expansions", "temperature", "c_explore"
+                    ])
+                
+                # Write the data row
+                writer.writerow([
+                    accuracy, self.config['iteration'], self.config['policy_size'], self.config['value_size'], 
+                    self.config['branch_factor'], self.config['max_expansions'], 
+                    self.config['temperature'], self.config['c_explore']
+                ])
+                
+        except Exception as e:
+            print(f"Error exporting evaluation data: {e}")
+
+    def _print_collection_stats(self) -> None:
+        """Print current data collection and processing progress."""
+        runtime = time.time() - self.start_time
+        print(f"\n--- Stats after {runtime:.1f} seconds ---")
+        print(f"API throughput: {self.total_api_calls / runtime} calls/sec")
+        if self.is_training:
+            print(f"Total API calls: {self.total_api_calls}")
+            print(f"Train examples collected: {len(self.forest_train.value_training_data)}/{self.config['target_examples_train']}")
+            print(f"Val examples collected: {len(self.forest_val.value_training_data)}/{self.config['target_examples_val']}")
+        else:
+            print(f"Test examples collected: {len(self.forest_test.results)}/{len(self.questions_test)}")
+
+    async def _monitor_collection(self) -> None:
+        """Monitor collection progress."""
+        stats_interval = self.config['stats_interval']
+        last_stats = time.time()
+
+        while True:
+            current_time = time.time()
+            if current_time - last_stats >= stats_interval:
+                self._print_collection_stats()
+                last_stats = current_time
+            await asyncio.sleep(5)
+
+    async def run(self) -> None:
+        """Run the MCTS forest."""
+        monitor_task = asyncio.create_task(self._monitor_collection())
+
+        try:
+            if self.is_training:
+                train_data = await self.forest_train.run_forest()
+                val_data = await self.forest_val.run_forest()
+                self.export_training_data(train_data, val_data)
+            else:
+                accuracy = await self.forest_test.run_forest()
+                self.export_evaluation_data(accuracy)
+        finally:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+
+
 
