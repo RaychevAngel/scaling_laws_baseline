@@ -15,13 +15,13 @@ DEFAULT_CONFIG = {
     'value_size': 135,   # default size for value model
 
     # Policy configuration
-    'policy_model_template': "policy-{}-iter{}",  # common template for all sizes
+    'policy_model_template': "mstojkov/policy-{}-iter{}",  # common template for all sizes
     'openai_api_key': "sk-placeholder",
     
     'model_endpoints': {  # or 'model_api_configs'
         135: {
-            'policy_api_base': "http://81.166.173.12:10569/v1",
-            'value_api_base': "http://45.135.56.11:26633/predict"
+            'policy_api_base': "http://101.98.36.147:42202/v1",
+            'value_api_base': "http://213.181.123.66:22839/predict"
         },
         360: {
             'policy_api_base': "http://79.160.189.79:14182/v1",
@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
     # Forest configuration
     'num_trees': 100,
     'batch_size': 50,
+    'max_workers': 50,
     
     # Tree configuration
     'branch_factor': 3,
@@ -98,7 +99,10 @@ def get_config(is_training=None, iteration=None,
     
     # Update model sizes
     p_size = policy_size or config['policy_size']
-    v_size = value_size or config['value_size']
+    if value_size is not None:
+        v_size = value_size
+    else:
+        v_size = config['value_size']
     config['policy_size'] = p_size
     config['value_size'] = v_size
     

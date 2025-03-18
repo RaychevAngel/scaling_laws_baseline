@@ -11,7 +11,7 @@ import csv
 class MCTSNode:
     """Node in the Monte Carlo Tree Search."""
     
-    def __init__(self, state: str, parent: Self | None, visit_count: int | 0, action_value: float, value_estimate: float):
+    def __init__(self, state: str, parent: Self | None, visit_count: int, action_value: float, value_estimate: float):
         self.state = state
         self.parent = parent
         self.children = []
@@ -35,20 +35,44 @@ class MCTSNode:
                              for state, value in state_values])
 
     def evaluate_terminal_state(self, question: str) -> float:
-        """Evaluate if terminal state solves the 24 game."""
+        """Evaluate if terminal state solves the arithmetic game with a specified target."""
         if not self.is_terminal:
             raise ValueError("Evaluation called on non-terminal state")
         try:
-            question_nums = sorted([int(x) for x in question.split()])
-            last_line = ''.join(c for c in self.state.split('\n')[-1] 
-                              if c in '0123456789+-*/()=')
-            parts = last_line.split('=')
-            if len(parts) != 2 or parts[1] != '24':
+            # Extract target and numbers from question
+            question_text = question.strip()
+            target_match = re.search(r'make (\d+)', question_text)
+            numbers_match = re.search(r'Use ([\d, ]+) to make', question_text)
+            if not target_match or not numbers_match:
                 return 0.0
             
-            expr_nums = sorted([int(n) for n in re.findall(r'\d+', parts[0])])
-            return 1.0 if expr_nums == question_nums and abs(eval(parts[0]) - 24) <= 1e-6 else 0.0
-        except:
+            target = int(target_match.group(1))
+            question_nums = sorted([int(x.strip()) for x in numbers_match.group(1).split(',')])
+            
+            # Check solution
+            last_line = self.state.split('\n')[-1]
+            # Extract the equation part
+            equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(\d+)', last_line)
+            if not equation_match:
+                return 0.0
+            
+            left_side = equation_match.group(1).strip()
+            right_side = int(equation_match.group(2))
+            
+            if right_side != target:
+                return 0.0
+            
+            # Extract all numbers used in the expression
+            expr_nums = sorted([int(n) for n in re.findall(r'\d+', left_side)])
+            
+            # Check if the expression evaluates to the target and uses the right numbers
+            try:
+                result = eval(left_side)
+                return 1.0 if expr_nums == question_nums and abs(result - target) <= 1e-6 else 0.0
+            except:
+                return 0.0
+        except Exception as e:
+            print(f"Error in evaluate_terminal_state: {e}")
             return 0.0
 
     @property
@@ -62,12 +86,12 @@ class MCTSNode:
 class MCTSTree:
     """Single MCTS tree for exploring solutions to a question."""
     
-    def __init__(self, root_value: float, question: str, max_expansions: int, 
+    def __init__(self, question: str, max_expansions: int, 
                  c_explore: float, request_queue, is_training: bool):
         
         self.is_training = is_training
 
-        self.root = MCTSNode(state="", action_value=root_value, value_estimate=root_value)
+        self.root = MCTSNode(state="", parent=None, visit_count=0, action_value=0, value_estimate=0)
         self.question = question
         self.expansion_count = 0
         self.max_expansions = max_expansions
@@ -161,7 +185,7 @@ class MCTSTree:
 class MCTSForest:
     """Forest of MCTS trees for parallel exploration of multiple questions."""
     
-    def __init__(self, initial_values: Dict[str, float], questions: List[str],
+    def __init__(self, questions: List[str],
                  max_expansions: int, num_trees: int, c_explore: float, 
                  policy_value_fn: Callable, target_examples: int | None,
                  batch_size: int, is_training: bool):
@@ -170,7 +194,6 @@ class MCTSForest:
         
 
         # Initialize forest parameters
-        self.initial_values = initial_values
         self.questions = questions
         self.max_expansions = max_expansions
         self.num_trees = num_trees
@@ -217,8 +240,7 @@ class MCTSForest:
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree."""
-        return MCTSTree(
-            root_value=self.initial_values[question],  # Access initial value directly
+        return MCTSTree( # Access initial value directly
             question=question,
             max_expansions=self.max_expansions,
             c_explore=self.c_explore,
@@ -290,7 +312,7 @@ class MCTSForest:
                     self.results[current_question] = result
                 
                 # Update tree with next question
-                next_question = await self._select_next_question(current_question)
+                next_question = await self._select_next_question()
                 self._update_tree_spot(spot_index, next_question)
                 
             except Exception as e:
@@ -394,28 +416,20 @@ class Run_MCTS_Forest:
             openai_api_base=self.config['openai_api_base'],
             openai_api_key=self.config['openai_api_key'],
             value_api_base_url=self.config['value_api_base'],
-            policy_model=self.config['policy_model']
+            policy_model=self.config['policy_model'],
+            max_workers=self.config['max_workers']
         )
-    
-    def _get_initial_values(self, model: PolicyValueModel) -> Tuple[List[float], List[float]]:
-        """Get initial value estimates for all questions."""
-        if self.is_training:
-            train_initial_states = [(q, "") for q in self.questions_train]
-            val_initial_states = [(q, "") for q in self.questions_val]
-            return model.batch_value_estimate(train_initial_states), model.batch_value_estimate(val_initial_states)
-        else:
-            test_initial_states = [(q, "") for q in self.questions_test]
-            return model.batch_value_estimate(test_initial_states), []
 
     def _initialize_forest(self) -> Tuple[MCTSForest, MCTSForest, MCTSForest]:
         """Initialize MCTS forest."""
         policy_value_model = self._initialize_model()
         
         def policy_value_fn(questions_states: List[Tuple[str, str]]) -> List[List[Tuple[str, float]]]:
-            return policy_value_model.get_policy_value([
-                (q, s, self.config['branch_factor'], self.config['temperature'])
-                for q, s in questions_states
-            ])
+            return policy_value_model.get_policy_value(
+                questions_states,
+                self.config['branch_factor'],
+                self.config['temperature']
+            )
         
         # Common parameters for forest initialization
         common_params = {
@@ -428,24 +442,19 @@ class Run_MCTS_Forest:
         }
         
         if self.is_training:
-            train_initial_values, val_initial_values = self._get_initial_values(policy_value_model)
             forest_train = MCTSForest(
-                initial_values=train_initial_values,
                 questions=self.questions_train,
                 target_examples=self.config['target_examples_train'],
                 **common_params
             )
             forest_val = MCTSForest(
-                initial_values=val_initial_values,
                 questions=self.questions_val,
                 target_examples=self.config['target_examples_val'],
                 **common_params
             )
             return forest_train, forest_val, None
         else:
-            test_initial_values, _ = self._get_initial_values(policy_value_model)
             forest_test = MCTSForest(
-                initial_values=test_initial_values,
                 questions=self.questions_test,
                 **common_params
             )
@@ -528,10 +537,11 @@ class Run_MCTS_Forest:
             except asyncio.CancelledError:
                 pass
 
-def main(branch_factor: int, max_expansions: int):
-    config = get_config(branch_factor=branch_factor, max_expansions=max_expansions)
+def main(policy_size: int, value_size: int, branch_factor: int, max_expansions: int, iteration: int):
+    config = get_config(policy_size=policy_size, value_size=value_size, branch_factor=branch_factor, max_expansions=max_expansions)
     run_mcts_forest = Run_MCTS_Forest(config)
-    run_mcts_forest.run()
+
+    asyncio.run(run_mcts_forest.run())
 
 if __name__ == "__main__":
-    main(branch_factor=3, max_expansions=20)
+    main(policy_size=135, value_size=135, branch_factor=3, max_expansions=20, iteration=1)
