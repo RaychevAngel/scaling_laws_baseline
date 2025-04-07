@@ -1,1 +1,3 @@
+## Abstract
 
+This work serves as a baseline for answering the question of whether reasoning models using in-context search can solve fundamentally new classes of problems that remain unsolvable by standard search approaches, regardless of computational resources. Specifically, we adopt an AlphaZero-inspired Monte Carlo Tree Search (MCTS) framework within the language model domain to solve a generalized version of the Game of 24 . We implement an iterative training approach jointly optimizing policy and value functions, inspired by TS-LLM. We employ SmolM2 models of sizes $135 \mathrm{M}, 360 \mathrm{M}$, and 1.7 B for both policy and value functions, and examine scaling laws related to training and inference-time compute.
