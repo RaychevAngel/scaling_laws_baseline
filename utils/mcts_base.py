@@ -3,8 +3,8 @@ import random
 import re
 import time
 import asyncio
-from trajectory_processor import TrajectoryProcessor
-from policy_value_fn import PolicyValueModel
+from utils.process_data import TrajectoryProcessor
+from utils.request_api import PolicyValueModel
 from config_mcts import get_config
 import csv
 

@@ -20,7 +20,7 @@ train_arguments:
   use_mps_device: false
   hub_model_id: "smol-lm-135M"
   training_data_file: "/scaling_laws_baseline/code/data/iter1/135_135/value_ds"
-  validation_data_file: "/scaling_laws_baseline/code/data/iter1/135_135/value_ds" 
+  validation_data_file: "/scaling_laws_baseline/code/data/iter1/135_135/value_ds"
   patience: 3
   seed: 42
   gradient_accumulation_steps: 4
