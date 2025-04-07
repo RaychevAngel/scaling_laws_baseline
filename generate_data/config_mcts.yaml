@@ -1,0 +1,28 @@
+# Training configuration
+is_training: true
+iteration: 1  
+
+policy_size: 135
+value_size: 135
+
+policy_model_template: "mstojkov/policy-{}-iter{}"
+openai_api_key: "sk-placeholder"
+policy_api_base: "http://0.0.0.0:1/v1"
+value_api_base: "http://0.0.0.0:2/predict"
+
+num_trees: 100
+branch_factor: 3
+max_expansions: 20
+temperature: 1.0
+c_explore: 0.3
+
+target_examples_train: 10000
+target_examples_val: 1000
+
+train_questions_path: '../questions/train.txt'
+dev_questions_path: '../questions/dev.txt'
+
+policy_data_path: '../data/mcts_generated/policy/
+value_data_path: '../data/mcts_generated/value/
+
+stats_interval: 30 
