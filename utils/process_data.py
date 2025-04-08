@@ -67,18 +67,18 @@ class TrajectoryProcessor:
         return all_data
     
     @staticmethod
-    def _prepare_dataset(train_data: List[dict], val_data: List[dict], output_dir: str) -> DatasetDict:
+    def _prepare_dataset(train_data: List[dict], dev_data: List[dict], output_dir: str) -> DatasetDict:
         """Convert JSON data to Hugging Face dataset format."""
         # Create Dataset objects directly from the lists of dictionaries
         from datasets import Dataset
         
         train_dataset = Dataset.from_list(train_data)
-        val_dataset = Dataset.from_list(val_data)
+        dev_dataset = Dataset.from_list(dev_data)
         
         # Create and save the dataset dictionary
         dataset_dict = DatasetDict({
             "train": train_dataset,
-            "validation": val_dataset
+            "dev": dev_dataset
         })
         
         # Ensure the output directory exists
@@ -89,37 +89,37 @@ class TrajectoryProcessor:
         
         return dataset_dict
     
-    def export_data(self, train_data: Tuple[List, List], val_data: Tuple[List, List], output_paths: Dict[str, str]) -> None:
+    def export_data(self, train_data: Tuple[List, List], dev_data: Tuple[List, List], output_paths: Dict[str, str]) -> None:
         """
         Export processed policy and value training data to files and convert to datasets.
         
         Args:
             train_data: Tuple containing (train_policy_data, train_value_data)
-            val_data: Tuple containing (val_policy_data, val_value_data)
+            dev_data: Tuple containing (dev_policy_data, dev_value_data)
             output_paths: Dictionary containing output paths for different data types
         """
         # Unpack the raw data
         train_policy_tuples, train_value_tuples = train_data
-        val_policy_tuples, val_value_tuples = val_data
+        dev_policy_tuples, dev_value_tuples = dev_data
         
         # Process the data into the correct format
         train_policy_data = self.process_policy_trajectory(train_policy_tuples)
         train_value_data = self.process_value_trajectory(train_value_tuples)
-        val_policy_data = self.process_policy_trajectory(val_policy_tuples)
-        val_value_data = self.process_value_trajectory(val_value_tuples)
+        dev_policy_data = self.process_policy_trajectory(dev_policy_tuples)
+        dev_value_data = self.process_value_trajectory(dev_value_tuples)
 
         # Write the data to files
         #self._write_data_to_file(train_policy_data, output_paths['train_policy_data_path'], "train_policy_data")
         #self._write_data_to_file(train_value_data, output_paths['train_value_data_path'], "train_value_data")
-        #self._write_data_to_file(val_policy_data, output_paths['val_policy_data_path'], "val_policy_data")
-        #self._write_data_to_file(val_value_data, output_paths['val_value_data_path'], "val_value_data")
+        #self._write_data_to_file(dev_policy_data, output_paths['dev_policy_data_path'], "dev_policy_data")
+        #self._write_data_to_file(dev_value_data, output_paths['dev_value_data_path'], "dev_value_data")
         
         # Create Hugging Face datasets from the processed data
-        policy_output_dir = os.path.join(os.path.dirname(output_paths['train_policy_data_path']), "policy_ds")
-        value_output_dir = os.path.join(os.path.dirname(output_paths['train_value_data_path']), "value_ds")
+        policy_output_dir = os.path.join(os.path.dirname(output_paths['train_policy_data_path']), "policy")
+        value_output_dir = os.path.join(os.path.dirname(output_paths['train_value_data_path']), "value")
         
-        self._prepare_dataset(train_policy_data, val_policy_data, policy_output_dir)
-        self._prepare_dataset(train_value_data, val_value_data, value_output_dir)
+        self._prepare_dataset(train_policy_data, dev_policy_data, policy_output_dir)
+        self._prepare_dataset(train_value_data, dev_value_data, value_output_dir)
         
         print(f"Policy dataset saved to {policy_output_dir}")
         print(f"Value dataset saved to {value_output_dir}")
@@ -144,16 +144,16 @@ if __name__ == "__main__":
     
     train_policy_data = [(question, trajectory)]
     train_value_data = [(question, trajectory, 1.0)]
-    val_policy_data = [(question, trajectory)]
-    val_value_data = [(question, trajectory, 0.0)]
+    dev_policy_data = [(question, trajectory)]
+    dev_value_data = [(question, trajectory, 0.0)]
         
         # Define output paths
     output_paths = {
         'train_policy_data_path': '../data/iter1/135_135/policy_training_data.jsonl',
         'train_value_data_path': '../data/iter1/135_135/value_training_data.jsonl',
-        'val_policy_data_path': '../data/iter1/135_135/policy_validation_data.jsonl',
-        'val_value_data_path': '../data/iter1/135_135/value_validation_data.jsonl',
+        'dev_policy_data_path': '../data/iter1/135_135/policy_dev_data.jsonl',
+        'dev_value_data_path': '../data/iter1/135_135/value_dev_data.jsonl',
         }
     
-    processor.export_data((train_policy_data, train_value_data), (val_policy_data, val_value_data), output_paths)
+    processor.export_data((train_policy_data, train_value_data), (dev_policy_data, dev_value_data), output_paths)
 
