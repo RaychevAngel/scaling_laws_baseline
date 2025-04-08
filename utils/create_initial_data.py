@@ -201,6 +201,6 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     print("Dataset creation completed successfully!")
 
 if __name__ == "__main__":
-    create_dataset(range_start=1, range_end=15, operations=["+", "-", "*", "/"])
+    create_dataset(range_start=1, range_end=13, operations=["+", "-", "*", "/"])
 
 
