@@ -7,18 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 class PolicyValueModel:
     """Handles policy generation and value estimation for RL-based math problem solving."""
     
-    def __init__(
-        self, 
-        openai_api_base: str,
-        openai_api_key: str = "sk-placeholder",
-        value_api_base_url: str = None,
-        policy_model: str = "mstojkov/policy-135-iter0",
-        max_workers: int = 4
-    ):
-        self.policy_network = OpenAI(base_url=openai_api_base, api_key=openai_api_key)
+    def __init__(self, policy_model: str, policy_api_base: str, value_api_base: str):
+        self.policy_network = OpenAI(base_url=policy_api_base, api_key="sk-placeholder")
         self.policy_model = policy_model
-        self.value_network_url = value_api_base_url
-        self.max_workers = max_workers
+        self.value_network = value_api_base
 
     def get_policy_value(self, questions_and_states: List[Tuple[str, str]], branch_factor: int, temperature: float):
         """Sample actions and estimate their values."""
@@ -102,7 +94,7 @@ class PolicyValueModel:
                 return idx, []
         
         # Use ThreadPoolExecutor to process requests in parallel
-        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(questions_and_states))) as executor:
+        with ThreadPoolExecutor(max_workers=len(questions_and_states)) as executor:
             # Submit all queries to the executor
             future_to_idx = {
                 executor.submit(process_single_query, (idx, qs)): idx 
@@ -115,23 +107,3 @@ class PolicyValueModel:
                 next_states[idx] = result_states
         
         return next_states
-
-
-
-if __name__ == "__main__":
-    model = PolicyValueModel(
-        openai_api_base="http://0.0.0.0:9876/v1",
-        value_api_base_url="http://0.0.0.0:8000/predict",
-        policy_model="lakomey/sft-135-iter2-100",
-        max_workers=20  # Adjust this based on your API rate limits and performance needs
-    )
-    
-    question1 = "Use 3 7 11 12 to make 10"
-    state1 = "11-12=-1 (left: 3, 7, -1)\n"
-    question2 = "Use 5 7 11 3 to make 1"
-    state2 = "11-3=8 (left: 5, 7, 8)\n"
-    results = model.get_policy_value([(question1, state1), (question2, state2)], 40, 1.0)
-    
-    for result_list in results:
-        for next_state, value in result_list:
-            print(f"{next_state}{value}")
