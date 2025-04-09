@@ -3,6 +3,7 @@ policy_model: "aaa/policy_iteration_"
 policy_api_base: "http://0.0.0.0:1/v1"
 value_api_base: "http://0.0.0.0:2/predict"
 
+# MCTS parameters
 branch_factor: 3
 max_expansions: 20
 temperature: 1.0

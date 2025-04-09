@@ -1,6 +1,5 @@
 from typing import List, Dict, Tuple, Callable
 import random
-import time
 import asyncio
 from utils.mcts_base import MCTSTree, MCTSForest, RunMCTS
 from utils.process_data import TrajectoryProcessor
@@ -66,17 +65,6 @@ class MCTSForest_Generate(MCTSForest):
         self.policy_training_data = []
         self.value_training_data = []
         self.target_examples = target_examples
-        
-        # Create initial trees
-        self.trees = self._initialize_trees()
-
-    def _initialize_trees(self) -> List[MCTSTree]:
-        """Initialize the forest with trees for each spot."""
-        trees = []
-        for _ in range(self.num_trees):
-            question = random.choice(self.questions)
-            trees.append(self._create_tree(question))
-        return trees
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree for training."""
@@ -86,37 +74,16 @@ class MCTSForest_Generate(MCTSForest):
             c_explore=self.c_explore,
             request_queue=self.request_queue
         )
-
-    async def _select_next_question(self) -> str:
-        """Select next question to process based on data counts."""
-        return random.choice(self.questions)
-
-    async def _run_tree_spot(self, spot_index: int):
-        """Manage a single tree spot in the forest."""
-        while True:
-            current_question = None
-            try:
-                if len(self.value_training_data) >= self.target_examples:
-                    break
-
-                # Get current tree and process it
-                tree = self.trees[spot_index]
-                current_question = tree.question
-                policy_data, value_data = await tree.search()
-                
-                self.policy_training_data.extend(policy_data)
-                self.value_training_data.extend(value_data)
-                
-                # Update tree with next question
-                next_question = await self._select_next_question()
-                self.trees[spot_index] = self._create_tree(next_question)
-                
-            except Exception as e:
-                print(f"Spot {spot_index} error: {type(e).__name__}: {str(e)}")
-                print(f"Current question: {current_question}")
-                import traceback
-                traceback.print_exc()  # Print the stack trace for more detailed error information
-                await asyncio.sleep(1)
+        
+    def _should_stop_collection(self) -> bool:
+        """Stop when we've collected enough examples"""
+        return len(self.value_training_data) >= self.target_examples
+        
+    def _process_result(self, result):
+        """Process policy and value data from tree search"""
+        policy_data, value_data = result
+        self.policy_training_data.extend(policy_data)
+        self.value_training_data.extend(value_data)
 
     async def run_forest(self):
         """Run the MCTS forest with parallel tree processing."""
@@ -148,11 +115,6 @@ class RunMCTS_Generate(RunMCTS):
         except FileNotFoundError as e:
             print(f"Error loading questions: {e}")
             return [], []
-
-    def _read_questions(self, path: str) -> List[str]:
-        """Read questions from a file."""
-        with open(path, 'r') as f:
-            return [line.strip() for line in f]
 
     def _initialize_forest(self) -> Tuple[MCTSForest_Generate, MCTSForest_Generate]:
         """Initialize MCTS forest for training."""
@@ -187,44 +149,21 @@ class RunMCTS_Generate(RunMCTS):
         )
         
         return forest_train, forest_val
+    
+    def _print_collection_stats(self) -> None:
+        """Print current data collection and processing progress."""
+        super()._print_collection_stats()
+        print(f"Train examples collected: {len(self.forest_train.value_training_data)}/{self.config['target_examples_train']}")
+        print(f"Dev examples collected: {len(self.forest_val.value_training_data)}/{self.config['target_examples_dev']}")
 
     def export_training_data(self, train_data: Tuple[List, List], val_data: Tuple[List, List]) -> None:
         """Export processed policy and value training data to files."""
         self.trajectory_processor.export_data(*train_data, *val_data, self.config['policy_data_path'], self.config['value_data_path'])
 
-    def _print_collection_stats(self) -> None:
-        """Print current data collection and processing progress."""
-        runtime = time.time() - self.start_time
-        print(f"\n--- Stats after {runtime:.1f} seconds ---")
-        print(f"API throughput: {self.total_api_calls / runtime} calls/sec")
-        print(f"Total API calls: {self.total_api_calls}")
-        print(f"Train examples collected: {len(self.forest_train.value_training_data)}/{self.config['target_examples_train']}")
-        print(f"Dev examples collected: {len(self.forest_val.value_training_data)}/{self.config['target_examples_dev']}")
-
-    async def _monitor_collection(self) -> None:
-        """Monitor collection progress."""
-        stats_interval = self.config['stats_interval']
-        last_stats = time.time()
-
-        while True:
-            current_time = time.time()
-            if current_time - last_stats >= stats_interval:
-                self._print_collection_stats()
-                last_stats = current_time
-            await asyncio.sleep(5)
-
-    async def run(self) -> None:
+    async def _run_implementation(self):
         """Run the MCTS forest."""
-        monitor_task = asyncio.create_task(self._monitor_collection())
-
-        try:
-            train_data = await self.forest_train.run_forest()
-            val_data = await self.forest_val.run_forest()
-            self.export_training_data(train_data, val_data)
-            print("Total API calls: ", self.total_api_calls)
-        finally:
-            monitor_task.cancel()
-            try:
-                await monitor_task
-            except asyncio.CancelledError:
-                pass 
+        train_data = await self.forest_train.run_forest()
+        val_data = await self.forest_val.run_forest()
+        self.export_training_data(train_data, val_data)
+        print("Total API calls: ", self.total_api_calls)
+        return train_data, val_data 

@@ -3,6 +3,7 @@ import re
 import time
 import asyncio
 from utils.request_api import PolicyValueModel
+import random
 
 class MCTSNode:
     """Node in the Monte Carlo Tree Search."""
@@ -142,6 +143,9 @@ class MCTSForest:
         # Track runtime
         self.start_time = time.time()
         self.total_api_calls = 0
+        
+        # Initialize trees
+        self.trees = [self._create_tree(random.choice(questions)) for _ in range(num_trees)]
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree. To be implemented by subclasses."""
@@ -186,13 +190,40 @@ class MCTSForest:
             if not future.done():
                 future.set_exception(error)
 
-    async def _select_next_question(self) -> str:
-        """Select next question to process. To be implemented by subclasses."""
-        raise NotImplementedError("Subclasses must implement _select_next_question method")
-
     async def _run_tree_spot(self, spot_index: int):
-        """Base method for managing a single tree spot in the forest. To be implemented by subclasses."""
-        raise NotImplementedError("Subclasses must implement _run_tree_spot method")
+        """Run a single tree spot in the forest."""
+        while True:
+            current_question = None
+            try:
+                if self._should_stop_collection():
+                    break
+
+                # Get current tree and process it
+                tree = self.trees[spot_index]
+                current_question = tree.question
+                result = await tree.search()
+                
+                # Process the result (implemented by subclasses)
+                self._process_result(result)
+                
+                # Update tree with next question
+                next_question = random.choice(self.questions)
+                self.trees[spot_index] = self._create_tree(next_question)
+                
+            except Exception as e:
+                print(f"Tree error at spot {spot_index}: {str(e)}")
+                print(f"Current question: {current_question}")
+                import traceback
+                traceback.print_exc()  # Print the stack trace for more detailed error information
+                await asyncio.sleep(1)
+    
+    def _should_stop_collection(self) -> bool:
+        """Determine if collection should stop. To be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _should_stop_collection method")
+    
+    def _process_result(self, result):
+        """Process result from tree search. To be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _process_result method")
 
     async def run_forest(self):
         """Run the MCTS forest with parallel tree processing."""
@@ -218,3 +249,47 @@ class RunMCTS:
             value_api_base_url=self.config['value_api_base'],
             policy_model=self.config['policy_model']
         )
+        
+    def _read_questions(self, path: str) -> List[str]:
+        """Read questions from a file."""
+        with open(path, 'r') as f:
+            return [line.strip() for line in f]
+            
+    def _print_collection_stats(self) -> None:
+        """Print current data collection and processing progress."""
+        runtime = time.time() - self.start_time
+        print(f"\n--- Stats after {runtime:.1f} seconds ---")
+        print(f"API throughput: {self.total_api_calls / runtime} calls/sec")
+        print(f"Total API calls: {self.total_api_calls}")
+        
+        # Subclasses should implement additional stats printing
+            
+    async def _monitor_collection(self) -> None:
+        """Monitor collection progress."""
+        stats_interval = self.config['stats_interval']
+        last_stats = time.time()
+
+        while True:
+            current_time = time.time()
+            if current_time - last_stats >= stats_interval:
+                self._print_collection_stats()
+                last_stats = current_time
+            await asyncio.sleep(5)
+            
+    async def _run_implementation(self):
+        """Implementation-specific run logic. To be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _run_implementation method")
+            
+    async def run(self) -> None:
+        """Run the MCTS process with monitoring."""
+        monitor_task = asyncio.create_task(self._monitor_collection())
+
+        try:
+            result = await self._run_implementation()
+            return result
+        finally:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass

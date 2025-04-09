@@ -1,0 +1,26 @@
+accuracy: None
+
+# Training configuration
+policy_model: "aaa/policy_iteration_"
+policy_api_base: "http://0.0.0.0:1/v1"
+value_api_base: "http://0.0.0.0:2/predict"
+
+# MCTS parameters
+branch_factor: 3
+max_expansions: 20
+temperature: 1.0
+c_explore: 0.3
+batch_size: 50
+
+# Target data generation parameters
+epsilon: 0.01
+delta: 0.05
+
+# Data paths
+test_questions_path: "../questions/test.txt"
+
+# Output paths for generated data
+export_data_path: "../results/iteration_"
+
+# Runtime configuration
+stats_interval: 30 
