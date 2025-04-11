@@ -120,6 +120,22 @@ class TrajectoryProcessor:
         print(f"Policy dataset saved to {policy_output_dir}")
         print(f"Value dataset saved to {value_output_dir}")
     
+    def export_evaluation_data(self, data: Dict, output_path: str) -> None:
+        """
+        Export evaluation results to a JSON file.
+        
+        Args:
+            data: Dictionary containing evaluation metrics
+            output_path: Path to save the evaluation results
+        """
+        try:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, 'w') as f:
+                json.dump(data, f, indent=4)
+            print(f"Evaluation data exported to {output_path}")
+        except Exception as e:
+            print(f"Error exporting evaluation data: {e}")
+    
     @staticmethod
     def _write_data_to_file(data: List[dict], file_path: str, data_type: str) -> None:
         """Helper function to write data to a specified file path."""

@@ -106,18 +106,9 @@ class RunMCTS_Evaluate(RunMCTS):
 
     def _initialize_forest(self) -> MCTSForest_Evaluate:
         """Initialize MCTS forest for evaluation."""
-        policy_value_model = self._initialize_model()
-        
-        def policy_value_fn(questions_states: List[Tuple[str, str]]) -> List[List[Tuple[str, float]]]:
-            return policy_value_model.get_policy_value(
-                questions_states,
-                self.config['branch_factor'],
-                self.config['temperature']
-            )
-        
         return MCTSForest_Evaluate(
             questions=self.questions_test,
-            policy_value_fn=policy_value_fn,
+            policy_value_fn=self.policy_value_fn,
             max_expansions=self.config['max_expansions'],
             c_explore=self.config['c_explore'],
             batch_size=self.config['batch_size'],

@@ -1,8 +1,6 @@
 import asyncio
 import yaml
-import subprocess
-import os
-import re
+from utils.deploy import PolicyValueServer
 from mcts_evaluator import RunMCTS_Evaluate
 
 async def main(iteration: int):
@@ -11,34 +9,38 @@ async def main(iteration: int):
         config = yaml.safe_load(f)
     
     # Update iteration-specific paths
-    for key in ['policy_model', 'export_data_path']:
+    for key in ['policy_model', 'value_model', 'export_data_path']:
         config[key] += str(iteration)
     
-    # Extract ports from API base URLs
-    policy_port = int(re.search(r':(\d+)/', config['policy_api_base']).group(1))
-    value_port = int(re.search(r':(\d+)/', config['value_api_base']).group(1))
+    # Start the policy-value server
+    print(f"Starting policy-value server on {config['host']}:{config['port']}")
+    print(f"Using policy model: {config['policy_model']}")
+    print(f"Using value model: {config['value_model']}")
     
-    print(f"Starting servers on ports: policy={policy_port}, value={value_port}")
+    server = PolicyValueServer(
+        policy_model=config['policy_model'],
+        value_model=config['value_model'],
+        host=config['host'],
+        port=config['port'],
+        endpoint=config['endpoint']
+    )
+    server.start()
     
-    # Start servers in new terminals
-    policy_cmd = f"gnome-terminal -- python -c \"from utils.deploy_policy import deploy_policy; deploy_policy({policy_port})\""
-    value_cmd = f"gnome-terminal -- python -c \"from utils.deploy_value import deploy_value; deploy_value({value_port})\""
-    
-    subprocess.Popen(policy_cmd, shell=True)
-    subprocess.Popen(value_cmd, shell=True)
-    
-    # Allow time for servers to initialize
-    print("Waiting 20 seconds for servers to initialize...")
-    await asyncio.sleep(20)
+    # Allow time for the server to initialize
+    print("Waiting 5 seconds for server to initialize...")
+    await asyncio.sleep(5)
     
     try:
-        # Run the MCTS generator
+        # Run the MCTS evaluator
         await RunMCTS_Evaluate(config).run()
     finally:
-        # Terminate server processes
-        print("Shutting down servers...")
-        os.system(f"pkill -f 'deploy_policy.*{policy_port}'")
-        os.system(f"pkill -f 'deploy_value.*{value_port}'")
+        # Stop the server (server will be terminated when program exits)
+        server.stop()
 
 if __name__ == "__main__":
-    asyncio.run(main(iteration=1))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--iteration", type=int, default=1, help="Iteration number for evaluation")
+    args = parser.parse_args()
+    
+    asyncio.run(main(iteration=args.iteration))

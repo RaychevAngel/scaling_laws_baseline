@@ -1,7 +1,11 @@
-# Training configuration
-policy_model: "aaa/policy_iteration_"
-policy_api_base: "http://0.0.0.0:1/v1"
-value_api_base: "http://0.0.0.0:2/predict"
+# Server configuration
+host: "0.0.0.0"
+port: 1
+endpoint: "/policy-value"  # API endpoint for policy-value predictions
+
+# Model configuration
+policy_model: "AngelRaychev/policy_model_iteration_"  # Base name for policy model
+value_model: "AngelRaychev/value_model_iteration_"    # Base name for value model
 
 # MCTS parameters
 branch_factor: 3
