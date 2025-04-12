@@ -1,0 +1,14 @@
+device: cuda
+model_name: AngelRaychev/policy_iteration_0
+hub_model_id: AngelRaychev/policy_iteration_1
+dataset_file: data/pre_generated/policy
+
+
+accumulation_steps: 4
+batch_size: 4
+learning_rate: 5e-5
+
+logging_steps: 10
+eval_steps: 100
+
+early_stopping_patience: 5

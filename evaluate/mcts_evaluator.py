@@ -3,6 +3,7 @@ import asyncio
 import math
 from utils.mcts_base import MCTSTree, MCTSForest, RunMCTS
 import yaml
+import os
 
 class MCTSTree_Evaluate(MCTSTree):
     """MCTS tree implementation for evaluation."""
@@ -127,6 +128,9 @@ class RunMCTS_Evaluate(RunMCTS):
         try:
             self.config['accuracy'] = accuracy
             filepath = f"{self.config['export_data_path']}{self.config['iteration']}.yaml"
+            
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             
             with open(filepath, 'w') as f:
                 yaml.dump(self.config, f, default_flow_style=False)

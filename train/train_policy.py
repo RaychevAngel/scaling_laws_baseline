@@ -1,100 +1,96 @@
-import os
-import argparse
-import torch
+import yaml
 from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback, TrainerCallback
 from datasets import load_from_disk
-from trl import SFTConfig, SFTTrainer, setup_chat_format
+from trl import SFTConfig, SFTTrainer
+import tempfile
+import shutil
+from tqdm.auto import tqdm
 
-class EpochProgressCallback(TrainerCallback):
+class EpochProgressBar(TrainerCallback):
+    def __init__(self):
+        self.step_progress_bar = None
+        self.current_step = 0
+    
     def on_epoch_begin(self, args, state, control, **kwargs):
-        print(f"Starting epoch {state.epoch + 1:.2f}")
+        # Initialize or reset the step progress bar for this epoch
+        if self.step_progress_bar is not None:
+            self.step_progress_bar.close()
+        
+        # Calculate total steps for this epoch
+        dataset_size = len(state.train_dataset)
+        batch_size = args.per_device_train_batch_size
+        gradient_accumulation_steps = args.gradient_accumulation_steps
+        total_steps = dataset_size // (batch_size * gradient_accumulation_steps)
+        if dataset_size % (batch_size * gradient_accumulation_steps) != 0:
+            total_steps += 1
+        
+        # Create progress bar for this epoch
+        self.step_progress_bar = tqdm(
+            total=total_steps,
+            desc=f"Epoch {state.epoch:.2f}", 
+            position=0
+        )
+        self.current_step = 0
+    
+    def on_step_end(self, args, state, control, **kwargs):
+        # Update step progress
+        if self.step_progress_bar is not None:
+            self.current_step += 1
+            self.step_progress_bar.update(1)
+    
     def on_epoch_end(self, args, state, control, **kwargs):
-        print(f"Finished epoch {state.epoch:.2f}")
+        # Close progress bar at the end of the epoch
+        if self.step_progress_bar is not None:
+            self.step_progress_bar.close()
+            self.step_progress_bar = None
 
-def finetune_policy(train_config):
-    for key, value in train_config.items():
-        print(f"{key}: {value}")
-    model_name = train_config["model_name"]
-    save_model_name = train_config["save_model_name"]
-    output_dir = train_config["output_dir"]
-    per_device_train_batch_size = int(train_config["per_device_train_batch_size"])
-    learning_rate = float(train_config["learning_rate"])
-    logging_steps = int(train_config["logging_steps"])
-    save_steps = int(train_config["save_steps"])
-    evaluation_strategy = train_config["evaluation_strategy"]
-    eval_steps = int(train_config["eval_steps"])
-    device = train_config["device"]
-
-    model = AutoModelForCausalLM.from_pretrained(model_name, ignore_mismatched_sizes=True).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    train_dataset = load_from_disk(os.path.join(train_config["dataset_file"], "train"))
-    val_dataset = load_from_disk(os.path.join(train_config["dataset_file"], "validation"))
+class PolicyTrainer:
+    def __init__(self, config):
+        self.config = config
+        self.device = self.config["device"]
+        self.model = AutoModelForCausalLM.from_pretrained(self.config["model_name"], ignore_mismatched_sizes=True).to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.config["model_name"])
+        self.temp_dir = tempfile.mkdtemp()
     
-    if "train" in train_dataset:
-        train_dataset = train_dataset['train']
-        val_dataset = val_dataset['train']
+    def _create_trainer_config(self):
+        return SFTConfig(
+            output_dir=self.temp_dir,
+
+            gradient_accumulation_steps=int(self.config["accumulation_steps"]),
+            per_device_train_batch_size=int(self.config["batch_size"]),
+            
+            learning_rate=float(self.config["learning_rate"]),
+            lr_scheduler_type="cosine_with_restarts",
+            warmup_ratio=0.1,
+            weight_decay=0.01,
+            optim="adamw_torch",
+            
+            logging_steps=int(self.config["logging_steps"]),
+            eval_steps=int(self.config["eval_steps"]),
+            evaluation_strategy="steps",
+            save_strategy="no",
+            save_best_model=True,
+            metric_for_best_model="eval_loss",
+            load_best_model_at_end=True,
+            
+            hub_model_id=self.config["hub_model_id"],
+        )
     
-    print(f"Train dataset length: {len(train_dataset)}")
-    print(f"Validation dataset length: {len(val_dataset)}")
-    
-    train_dataset = train_dataset.shuffle(seed=42)
-    val_dataset = val_dataset.shuffle(seed=42)
-
-    sft_config = SFTConfig(
-        output_dir=output_dir,
-        num_train_epochs=3,
-        gradient_accumulation_steps=4,
-        per_device_train_batch_size=per_device_train_batch_size,
-        learning_rate=learning_rate,
-        logging_steps=logging_steps,
-        save_steps=save_steps,
-        save_strategy="steps",
-        evaluation_strategy=evaluation_strategy,
-        eval_steps=eval_steps,
-        save_total_limit=2,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
-        load_best_model_at_end=True,
-        use_mps_device=(device == "mps"),
-        hub_model_id=save_model_name,
-    )
-
-
-
-    trainer = SFTTrainer(
-        model=model,
-        args=sft_config,
-        train_dataset=train_dataset,
-        tokenizer=tokenizer,
-        eval_dataset=val_dataset,
-        callbacks=[EpochProgressCallback(), EarlyStoppingCallback(early_stopping_patience=10)],
-    )
-
-
-    trainer.train()
-    trainer.save_model(f"./{save_model_name}")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fine-tune a causal language model")
-    
-    # Required Arguments
-    parser.add_argument("--model_name", type=str, required=True, help="Pretrained model name (e.g., 'gpt2', 'mistralai/Mistral-7B')")
-    parser.add_argument("--dataset_file", type=str, required=True, help="Path to the dataset directory")
-    parser.add_argument("--output_dir", type=str, required=True, help="Output directory for saving the trained model")
-    parser.add_argument("--save_model_name", type=str, required=True, help="Name of the saved model")
-    
-    # Optional Arguments
-    parser.add_argument("--max_steps", type=int, default=1000, help="Maximum training steps")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=4, help="Batch size per device")
-    parser.add_argument("--learning_rate", type=float, default=5e-5, help="Learning rate")
-    parser.add_argument("--logging_steps", type=int, default=10, help="Log training progress every X steps")
-    parser.add_argument("--save_steps", type=int, default=100, help="Save the model every X steps")
-    parser.add_argument("--evaluation_strategy", type=str, default="steps", help="Evaluation strategy")
-    parser.add_argument("--eval_steps", type=int, default=100, help="Evaluate every X steps")
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device: 'cpu', 'cuda', or 'mps'")
-    
-    args = parser.parse_args()
-
-    train_config = vars(args)
-    finetune_policy(train_config)
+    def train(self):
+        dataset = load_from_disk(self.config["dataset_file"])
+        
+        trainer = SFTTrainer(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            args=self._create_trainer_config(),
+            train_dataset=dataset["train"].shuffle(seed=42),
+            eval_dataset=dataset["dev"].shuffle(seed=42),
+            callbacks=[EpochProgressBar(), EarlyStoppingCallback(early_stopping_patience=int(self.config["patience"]))],
+        )
+        
+        trainer.train()
+        print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
+        trainer.push_to_hub()
+        print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
+        
+        shutil.rmtree(self.temp_dir)

@@ -99,6 +99,9 @@ def generate_random_negative_example(problem):
         
 def save_questions(train_questions, dev_questions, test_questions):
     """Save questions to files."""
+    # Create questions directory if it doesn't exist
+    os.makedirs("../questions", exist_ok=True)
+    
     with open("../questions/train.txt", "w") as f:
         f.write("\n".join(train_questions))
     with open("../questions/dev.txt", "w") as f:
@@ -106,16 +109,14 @@ def save_questions(train_questions, dev_questions, test_questions):
     with open("../questions/test.txt", "w") as f:
         f.write("\n".join(test_questions))
 
-def export_data(train_policy_data, train_value_data, dev_policy_data, dev_value_data):
+def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
     """Export the generated data using the processor."""
     processor = TrajectoryProcessor()
-    output_paths = {
-        "train_policy_data_path": "../data/pre_generated/train_policy_data.jsonl",
-        "train_value_data_path": "../data/pre_generated/train_value_data.jsonl",
-        "dev_policy_data_path": "../data/pre_generated/dev_policy_data.jsonl",
-        "dev_value_data_path": "../data/pre_generated/dev_value_data.jsonl",
-    }
-    processor.export_data((train_policy_data, train_value_data), (dev_policy_data, dev_value_data), output_paths)
+    policy_output_dir = "../data/pre_generated/policy"
+    value_output_dir = "../data/pre_generated/value"
+    processor.export_data(policy_data_train, value_data_train, 
+                          policy_data_dev, value_data_dev, 
+                          policy_output_dir, value_output_dir)
 
 # --- Main dataset creation function ---
 def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
@@ -201,6 +202,6 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     print("Dataset creation completed successfully!")
 
 if __name__ == "__main__":
-    create_dataset(range_start=1, range_end=13, operations=["+", "-", "*", "/"])
+    create_dataset(range_start=1, range_end=10, operations=["+", "-", "*", "/"])
 
 
