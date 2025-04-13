@@ -1,14 +1,23 @@
-device: cuda
+# Model and dataset configuration
 model_name: AngelRaychev/policy_iteration_0
+device: cuda
 hub_model_id: AngelRaychev/policy_iteration_1
 dataset_file: data/pre_generated/policy
 
-
-accumulation_steps: 4
-batch_size: 4
+# Optimization parameters
 learning_rate: 5e-5
+lr_scheduler_type: "one_cycle"
+warmup_ratio: 0.2  
+optimizer: "adamw_torch"
+accumulation_steps: 4
+max_grad_norm: 1.0
 
+# Regularization parameters
+dropout: 0.1
+weight_decay: 0.01
+
+# Convergence criteria
 logging_steps: 10
 eval_steps: 100
-
-early_stopping_patience: 5
+patience: 5
+improvement_tolerance: 0.001

@@ -1,4 +1,3 @@
-import yaml
 from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback, TrainerCallback
 from datasets import load_from_disk
 from trl import SFTConfig, SFTTrainer
@@ -48,6 +47,7 @@ class PolicyTrainer:
     def __init__(self, config):
         self.config = config
         self.device = self.config["device"]
+        # The model will automatically use all available GPUs on the same machine
         self.model = AutoModelForCausalLM.from_pretrained(self.config["model_name"], ignore_mismatched_sizes=True).to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(self.config["model_name"])
         self.temp_dir = tempfile.mkdtemp()
@@ -57,13 +57,14 @@ class PolicyTrainer:
             output_dir=self.temp_dir,
 
             gradient_accumulation_steps=int(self.config["accumulation_steps"]),
-            per_device_train_batch_size=int(self.config["batch_size"]),
-            
             learning_rate=float(self.config["learning_rate"]),
-            lr_scheduler_type="cosine_with_restarts",
-            warmup_ratio=0.1,
-            weight_decay=0.01,
-            optim="adamw_torch",
+            lr_scheduler_type=self.config["lr_scheduler_type"],
+            warmup_ratio=float(self.config["warmup_ratio"]),
+            optim=self.config["optimizer"],
+            max_grad_norm=float(self.config["max_grad_norm"]),
+
+            dropout=float(self.config["dropout"]),
+            weight_decay=float(self.config["weight_decay"]),
             
             logging_steps=int(self.config["logging_steps"]),
             eval_steps=int(self.config["eval_steps"]),
@@ -79,15 +80,25 @@ class PolicyTrainer:
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
         
+        # Create the early stopping callback with min_delta parameter
+        early_stopping_callback = EarlyStoppingCallback(
+            early_stopping_patience=int(self.config["patience"]),
+            min_delta=float(self.config["improvement_tolerance"])
+        )
+        
         trainer = SFTTrainer(
             model=self.model,
             tokenizer=self.tokenizer,
             args=self._create_trainer_config(),
             train_dataset=dataset["train"].shuffle(seed=42),
             eval_dataset=dataset["dev"].shuffle(seed=42),
-            callbacks=[EpochProgressBar(), EarlyStoppingCallback(early_stopping_patience=int(self.config["patience"]))],
+            callbacks=[EpochProgressBar(), early_stopping_callback],
         )
         
+        # Find the optimal batch size for the available GPUs
+        trainer.find_executable_batch_size(auto_find_batch_size=True)
+        print(f"Batch size: {trainer.args.per_device_train_batch_size}")
+
         trainer.train()
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
         trainer.push_to_hub()
