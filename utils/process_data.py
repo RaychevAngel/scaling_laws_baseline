@@ -54,23 +54,22 @@ class TrajectoryProcessor:
         for question, trajectory, label in value_data:
             actions = trajectory.strip().split('\n')
             state = []
+            label_str = "1" if label == 1 else "0"
             for action in actions:
                 prompt = self._create_prompt(question, state)
-                completion = [{"role": "assistant", "content": " "}]
+                completion = [{"role": "assistant", "content": label_str}]
                 data_item = {
                     "prompt": prompt, 
-                    "completion": completion,
-                    "true_label": label
+                    "completion": completion
                 }
                 all_data.append(data_item)
                 state.append(action)
             # Add final state with reward
             prompt = self._create_prompt(question, state)
-            completion = [{"role": "assistant", "content": " "}]
+            completion = [{"role": "assistant", "content": label_str}]
             data_item = {
                 "prompt": prompt, 
-                "completion": completion,
-                "true_label": label
+                "completion": completion
             }
             all_data.append(data_item)
         return all_data

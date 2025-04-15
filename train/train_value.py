@@ -5,6 +5,30 @@ import tempfile, shutil, torch
 from tqdm.auto import tqdm
 import torch.nn.functional as F
 
+class LossScalingCallback(TrainerCallback):
+    """Callback to correctly scale the loss when using gradient accumulation."""
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is not None and "loss" in logs:
+            # Scale only the training loss by dividing by the number of accumulation steps
+            logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
+
+class TrainingLossSchedulerCallback(TrainerCallback):
+    """Callback to make ReduceLROnPlateau use training loss instead of eval loss."""
+    def __init__(self):
+        self.last_train_loss = None
+        
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is not None and "loss" in logs:
+            self.last_train_loss = logs["loss"]
+            
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        # During evaluation, if we have a training loss and using ReduceLROnPlateau,
+        # override the eval loss with the last training loss
+        if (metrics is not None and self.last_train_loss is not None and 
+            args.lr_scheduler_type == "reduce_lr_on_plateau"):
+            print(f"Using training loss ({self.last_train_loss:.4f}) for learning rate scheduler")
+            metrics["eval_loss"] = self.last_train_loss
+
 class EpochProgressBar(TrainerCallback):
     def __init__(self):
         self.progress_bar = None
@@ -55,17 +79,27 @@ class EpochProgressBar(TrainerCallback):
 class ValueSFTTrainer(SFTTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.value_token_id = 1
+        self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
+        print(f"Token ID for '1': {self.value_token_id}")
     
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
         outputs = model(**inputs)
         value_probs = F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id].view(-1, 1)
-        loss = F.binary_cross_entropy(value_probs, inputs.get("true_label").float().view(-1, 1))
+
+        # Get the first non-masked token from each sequence
+        labels = []
+        for label_seq in inputs["labels"]:
+            non_masked_indices = (label_seq != -100).nonzero(as_tuple=True)[0]
+            non_masked_tokens = [label_seq[idx].item() for idx in non_masked_indices]
+            labels.append(1 if non_masked_tokens[-4] == self.value_token_id else 0)
+
+        loss = F.binary_cross_entropy(value_probs, torch.tensor(labels, dtype=torch.float32, device=value_probs.device).view(-1, 1))
         return (loss, outputs) if return_outputs else loss
     
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
-            loss, outputs = self.compute_loss(self._prepare_inputs(inputs), return_outputs=True)
+            loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
         if prediction_loss_only:
             return (loss, None, None)
         return (loss, F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id], 
@@ -98,7 +132,6 @@ class ValueTrainer:
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
             lr_scheduler_kwargs=lr_scheduler_kwargs,
-            warmup_ratio=float(self.config["warmup_ratio"]),
             optim=self.config["optimizer"],
             max_grad_norm=float(self.config["max_grad_norm"]),
             weight_decay=float(self.config["weight_decay"]),
@@ -132,12 +165,15 @@ class ValueTrainer:
             early_stopping_threshold=float(self.config["improvement_tolerance"])
         )
         
+        loss_scaling_callback = LossScalingCallback()
+        training_loss_scheduler_callback = TrainingLossSchedulerCallback()
+        
         trainer = ValueSFTTrainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
             eval_dataset=dataset["dev"].select(range(dev_size)).shuffle(seed=42),
             args=self._create_trainer_config(),
-            callbacks=[EpochProgressBar(), early_stopping_callback]
+            callbacks=[EpochProgressBar(), early_stopping_callback, loss_scaling_callback, training_loss_scheduler_callback]
         )
         
         # Store dataset size for progress bar calculation
@@ -147,6 +183,7 @@ class ValueTrainer:
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
         print(f"Gradient accumulation steps: {trainer.args.gradient_accumulation_steps}")
+        print(f"Effective batch size: {trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps}")
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
         

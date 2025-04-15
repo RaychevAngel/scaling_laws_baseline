@@ -92,7 +92,6 @@ class PolicyTrainer:
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
             lr_scheduler_kwargs=lr_scheduler_kwargs,
-            warmup_ratio=float(self.config["warmup_ratio"]),
             optim=self.config["optimizer"],
             max_grad_norm=float(self.config["max_grad_norm"]),
             weight_decay=float(self.config["weight_decay"]),
@@ -139,6 +138,7 @@ class PolicyTrainer:
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
         print(f"Gradient accumulation steps: {trainer.args.gradient_accumulation_steps}")
+        print(f"Effective batch size: {trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps}")
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
         

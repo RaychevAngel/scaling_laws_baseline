@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from vllm import LLM, SamplingParams
 from typing import List, Tuple
 import threading
+from transformers import AutoTokenizer
 
 class PolicyValueRequest(BaseModel):
     questions_and_states: List[Tuple[str, str]]
@@ -19,7 +20,7 @@ class PolicyValueServer:
         self.host = host
         self.port = port
         self.endpoint = endpoint
-        self.value_token_id = 1
+        self.value_token_id = None  # Will be set during startup
         self.app = FastAPI(title="Policy-Value Predictor API")
         self.setup_app()
         self.server_thread = None
@@ -33,6 +34,12 @@ class PolicyValueServer:
             app.state.policy_llm = LLM(model=self.policy_model)
             app.state.value_llm = LLM(model=self.value_model)
             
+            # Set the value token ID for "1"
+            tokenizer = AutoTokenizer.from_pretrained(self.value_model)
+            self.value_token_id = tokenizer.encode("1", add_special_tokens=False)[0]
+            print(f"Value token ID for '1': {self.value_token_id}")
+
+
         @app.post(self.endpoint)
         async def predict_policy_value(request: PolicyValueRequest):
             if not app.state.policy_llm or not app.state.value_llm:
@@ -143,7 +150,7 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", required=True, help="API endpoint path")
     args = parser.parse_args()
     
-    server = PolicyValueServer(args.policy_model, args.value_model, args.host, args.port, args.endpoint, args.value_token_string)
+    server = PolicyValueServer(args.policy_model, args.value_model, args.host, args.port, args.endpoint)
     print(f"Starting server at http://{args.host}:{args.port}")
     print(f"Example: curl -X POST \"http://{args.host}:{args.port}{args.endpoint}\" -H \"Content-Type: application/json\" -d '{{\"questions_and_states\": [[\"What is 2+2?\", \"Let\\\'s solve:\"]], \"branch_factor\": 2}}'")
     uvicorn.run(server.app, host=args.host, port=args.port) 
