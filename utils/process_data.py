@@ -15,11 +15,6 @@ class TrajectoryProcessor:
             joined = ''
         return [{"role": "user", "content": f"{question.rstrip()}\n{joined}"}]
 
-    @staticmethod
-    def _format_data(prompt: List[dict], completion: str) -> str:
-        """Format as JSON string for model training."""
-        return json.dumps({"prompt": prompt, "completion": [{"role": "assistant", "content": completion}]})
-
     def process_policy_trajectory(self, policy_data: List[Tuple[str, str]]) -> List[dict]:
         """
         Process policy data for training.
@@ -37,7 +32,11 @@ class TrajectoryProcessor:
             for action in actions:
                 prompt = self._create_prompt(question, state)
                 completion = [{"role": "assistant", "content": action + "\n"}]
-                all_data.append({"prompt": prompt, "completion": completion})
+                data_item = {
+                    "prompt": prompt, 
+                    "completion": completion
+                }
+                all_data.append(data_item)
                 state.append(action)  # state grows as actions are added
         return all_data
 
@@ -46,24 +45,34 @@ class TrajectoryProcessor:
         Process value data for training.
         
         Args:
-            value_data: List of tuples (question, trajectory, reward)
+            value_data: List of tuples (question, trajectory, label)
         
         Returns:
             List of formatted JSON dictionaries for model training
         """
         all_data = []
-        for question, trajectory, reward in value_data:
+        for question, trajectory, label in value_data:
             actions = trajectory.strip().split('\n')
             state = []
             for action in actions:
                 prompt = self._create_prompt(question, state)
-                completion = [{"role": "assistant", "content": str(reward)}]
-                all_data.append({"prompt": prompt, "completion": completion})
+                completion = [{"role": "assistant", "content": " "}]
+                data_item = {
+                    "prompt": prompt, 
+                    "completion": completion,
+                    "true_label": label
+                }
+                all_data.append(data_item)
                 state.append(action)
             # Add final state with reward
             prompt = self._create_prompt(question, state)
-            completion = [{"role": "assistant", "content": str(reward)}]
-            all_data.append({"prompt": prompt, "completion": completion})
+            completion = [{"role": "assistant", "content": " "}]
+            data_item = {
+                "prompt": prompt, 
+                "completion": completion,
+                "true_label": label
+            }
+            all_data.append(data_item)
         return all_data
     
     @staticmethod

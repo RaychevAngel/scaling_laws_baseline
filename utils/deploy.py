@@ -19,8 +19,8 @@ class PolicyValueServer:
         self.host = host
         self.port = port
         self.endpoint = endpoint
-        self.app = FastAPI(title="Policy-Value Predictor API")
         self.value_token_id = 1
+        self.app = FastAPI(title="Policy-Value Predictor API")
         self.setup_app()
         self.server_thread = None
         
@@ -97,7 +97,7 @@ class PolicyValueServer:
         """Predict value scores based on first token logprobs"""
         # Configure sampling parameters for value prediction
         sampling_params = SamplingParams(
-            temperature=0.0, 
+            temperature=1.0,
             max_tokens=1
         )
         
@@ -107,7 +107,6 @@ class PolicyValueServer:
         # Process outputs
         results = []
         for output in outputs:
-            # Extract value from logprobs
             value = torch.exp(torch.tensor(output.outputs[0].logprobs[0][self.value_token_id])).item()
             results.append(value)
             
@@ -144,7 +143,7 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", required=True, help="API endpoint path")
     args = parser.parse_args()
     
-    server = PolicyValueServer(args.policy_model, args.value_model, args.host, args.port, args.endpoint)
+    server = PolicyValueServer(args.policy_model, args.value_model, args.host, args.port, args.endpoint, args.value_token_string)
     print(f"Starting server at http://{args.host}:{args.port}")
     print(f"Example: curl -X POST \"http://{args.host}:{args.port}{args.endpoint}\" -H \"Content-Type: application/json\" -d '{{\"questions_and_states\": [[\"What is 2+2?\", \"Let\\\'s solve:\"]], \"branch_factor\": 2}}'")
     uvicorn.run(server.app, host=args.host, port=args.port) 

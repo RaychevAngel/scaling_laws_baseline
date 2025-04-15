@@ -3,6 +3,7 @@ from datasets import load_from_disk
 from trl import SFTConfig, SFTTrainer
 import tempfile, shutil, torch
 from tqdm.auto import tqdm
+import torch.nn.functional as F
 
 class EpochProgressBar(TrainerCallback):
     def __init__(self):
@@ -13,12 +14,10 @@ class EpochProgressBar(TrainerCallback):
         if self.progress_bar is not None:
             self.progress_bar.close()
             
-        # Calculate steps per epoch using the formula:
-        # num_iteration = train_dataset_size / (per_device_train_batch_size * device_count * gradient_accumulation_steps)
+        # Calculate steps per epoch
         device_count = max(1, torch.cuda.device_count())
         steps_per_epoch = args.train_dataset_size // (args.per_device_train_batch_size * device_count * args.gradient_accumulation_steps)
         
-        # Set up progress bar to show epoch progress
         self.progress_bar = tqdm(
             total=steps_per_epoch,
             desc="Epoch Progress",
@@ -41,7 +40,7 @@ class EpochProgressBar(TrainerCallback):
             fraction_in_epoch = state.epoch - epoch_floor
             current_step = int(fraction_in_epoch * self.progress_bar.total)
             
-            # Set progress bar position directly instead of incrementing
+            # Set progress bar position directly
             self.progress_bar.n = current_step
             self.progress_bar.refresh()
     
@@ -53,19 +52,26 @@ class EpochProgressBar(TrainerCallback):
     def on_evaluate(self, args, state, control, **kwargs):
         print(f"\nEvaluating at step {state.global_step} (epoch {state.epoch:.2f})")
 
-class PolicySFTTrainer(SFTTrainer):
+class ValueSFTTrainer(SFTTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.value_token_id = 1
+    
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
         outputs = model(**inputs)
-        loss = outputs.loss
+        value_probs = F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id].view(-1, 1)
+        loss = F.binary_cross_entropy(value_probs, inputs.get("true_label").float().view(-1, 1))
         return (loss, outputs) if return_outputs else loss
-        
+    
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
-        inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
-            loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
-        return (loss, None, None) if prediction_loss_only else (loss, outputs.logits, inputs.get("labels"))
+            loss, outputs = self.compute_loss(self._prepare_inputs(inputs), return_outputs=True)
+        if prediction_loss_only:
+            return (loss, None, None)
+        return (loss, F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id], 
+                inputs.get("true_label", inputs.get("labels")))
 
-class PolicyTrainer:
+class ValueTrainer:
     def __init__(self, config):
         self.config = config
         self.device = config["device"]
@@ -74,6 +80,7 @@ class PolicyTrainer:
         self.temp_dir = tempfile.mkdtemp()
     
     def _create_trainer_config(self):
+        # Prepare lr_scheduler_kwargs if using reduce_lr_on_plateau
         lr_scheduler_kwargs = {}
         if self.config["lr_scheduler_type"] == "reduce_lr_on_plateau":
             lr_scheduler_kwargs = {
@@ -86,7 +93,6 @@ class PolicyTrainer:
             
         return SFTConfig(
             output_dir=self.temp_dir,
-
             auto_find_batch_size=True,
             gradient_accumulation_steps=int(self.config["accumulation_steps"]),
             learning_rate=float(self.config["learning_rate"]),
@@ -96,7 +102,7 @@ class PolicyTrainer:
             optim=self.config["optimizer"],
             max_grad_norm=float(self.config["max_grad_norm"]),
             weight_decay=float(self.config["weight_decay"]),
-            
+
             logging_strategy="steps",
             logging_steps=int(self.config["logging_steps"]),
             logging_first_step=True,
@@ -107,7 +113,7 @@ class PolicyTrainer:
             save_total_limit=1,
             metric_for_best_model="eval_loss",
             load_best_model_at_end=True,
-            
+
             push_to_hub=True,
             hub_model_id=self.config["hub_model_id"],
             hub_strategy="end",
@@ -117,6 +123,8 @@ class PolicyTrainer:
     
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
+        
+        # Limit dev dataset size to 5000 samples
         dev_size = min(len(dataset["dev"]), 5000)
         
         early_stopping_callback = EarlyStoppingCallback(
@@ -124,7 +132,7 @@ class PolicyTrainer:
             early_stopping_threshold=float(self.config["improvement_tolerance"])
         )
         
-        trainer = PolicySFTTrainer(
+        trainer = ValueSFTTrainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
             eval_dataset=dataset["dev"].select(range(dev_size)).shuffle(seed=42),

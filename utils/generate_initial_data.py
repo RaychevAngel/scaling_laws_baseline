@@ -4,6 +4,9 @@ from itertools import product
 import os
 from tqdm import tqdm
 
+# Set seed for reproducibility
+random.seed(42)
+
 # --- Helper functions ---
 def evaluate_expression(expr: str) -> float:
     """Evaluate a mathematical expression safely."""
