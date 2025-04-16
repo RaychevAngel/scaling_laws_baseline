@@ -28,7 +28,6 @@ async def main(iteration: int):
     server.start()
     
     # Allow time for the server to initialize
-    print("Waiting 5 seconds for server to initialize...")
     await asyncio.sleep(50)
     
     try:

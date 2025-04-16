@@ -31,6 +31,7 @@ class PolicyValueServer:
         @app.on_event("startup")
         async def startup():
             # Initialize models when server starts
+            # Note: vllm 0.8.4 does not support tensor_parallel_devices for specific GPU assignment
             app.state.policy_llm = LLM(model=self.policy_model)
             app.state.value_llm = LLM(model=self.value_model)
             
@@ -38,6 +39,7 @@ class PolicyValueServer:
             tokenizer = AutoTokenizer.from_pretrained(self.value_model)
             self.value_token_id = tokenizer.encode("1", add_special_tokens=False)[0]
             print(f"Value token ID for '1': {self.value_token_id}")
+            # Cannot reliably print GPU assignment with this vLLM version
 
 
         @app.post(self.endpoint)
@@ -150,7 +152,13 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", required=True, help="API endpoint path")
     args = parser.parse_args()
     
-    server = PolicyValueServer(args.policy_model, args.value_model, args.host, args.port, args.endpoint)
+    server = PolicyValueServer(
+        args.policy_model, 
+        args.value_model, 
+        args.host, 
+        args.port, 
+        args.endpoint
+    )
     print(f"Starting server at http://{args.host}:{args.port}")
     print(f"Example: curl -X POST \"http://{args.host}:{args.port}{args.endpoint}\" -H \"Content-Type: application/json\" -d '{{\"questions_and_states\": [[\"What is 2+2?\", \"Let\\\'s solve:\"]], \"branch_factor\": 2}}'")
     uvicorn.run(server.app, host=args.host, port=args.port) 
