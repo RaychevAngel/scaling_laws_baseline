@@ -1,11 +1,11 @@
 import asyncio
 import yaml
 from utils.deploy import PolicyValueServer
-from mcts_generator import RunMCTS_Generate
+from generate_data.mcts_generator import RunMCTS_Generate
 
 async def main(iteration: int):
     # Load configuration
-    with open('config_mcts_generator.yaml', 'r') as f:
+    with open('generate_data/config_mcts_generator.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
     # Update iteration-specific paths
@@ -29,7 +29,7 @@ async def main(iteration: int):
     
     # Allow time for the server to initialize
     print("Waiting 5 seconds for server to initialize...")
-    await asyncio.sleep(5)
+    await asyncio.sleep(50)
     
     try:
         # Run the MCTS generator

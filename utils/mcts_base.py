@@ -1,4 +1,5 @@
-from typing import Self, Callable, List, Dict, Tuple
+from typing import Callable, List, Dict, Tuple
+from typing_extensions import Self
 import re
 import time
 import asyncio
