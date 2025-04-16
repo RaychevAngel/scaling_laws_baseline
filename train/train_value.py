@@ -12,23 +12,6 @@ class LossScalingCallback(TrainerCallback):
             # Scale only the training loss by dividing by the number of accumulation steps
             logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
 
-class TrainingLossSchedulerCallback(TrainerCallback):
-    """Callback to make ReduceLROnPlateau use training loss instead of eval loss."""
-    def __init__(self):
-        self.last_train_loss = None
-        
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is not None and "loss" in logs:
-            self.last_train_loss = logs["loss"]
-            
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        # During evaluation, if we have a training loss and using ReduceLROnPlateau,
-        # override the eval loss with the last training loss
-        if (metrics is not None and self.last_train_loss is not None and 
-            args.lr_scheduler_type == "reduce_lr_on_plateau"):
-            print(f"Using training loss ({self.last_train_loss:.4f}) for learning rate scheduler")
-            metrics["eval_loss"] = self.last_train_loss
-
 class EpochProgressBar(TrainerCallback):
     def __init__(self):
         self.progress_bar = None
@@ -38,7 +21,6 @@ class EpochProgressBar(TrainerCallback):
         if self.progress_bar is not None:
             self.progress_bar.close()
             
-        # Calculate steps per epoch
         device_count = max(1, torch.cuda.device_count())
         steps_per_epoch = args.train_dataset_size // (args.per_device_train_batch_size * device_count * args.gradient_accumulation_steps)
         
@@ -52,19 +34,15 @@ class EpochProgressBar(TrainerCallback):
     
     def on_step_end(self, args, state, control, **kwargs):
         if self.progress_bar is not None:
-            # Check for new epoch
             epoch_floor = int(state.epoch)
             if epoch_floor != self.current_epoch:
-                # Reset progress bar for new epoch
                 self.current_epoch = epoch_floor
                 self.progress_bar.reset()
                 self.progress_bar.set_description(f"Epoch {epoch_floor + 1}")
             
-            # Calculate progress within current epoch
             fraction_in_epoch = state.epoch - epoch_floor
             current_step = int(fraction_in_epoch * self.progress_bar.total)
             
-            # Set progress bar position directly
             self.progress_bar.n = current_step
             self.progress_bar.refresh()
     
@@ -80,19 +58,15 @@ class ValueSFTTrainer(SFTTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
-        print(f"Token ID for '1': {self.value_token_id}")
     
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
         outputs = model(**inputs)
         value_probs = F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id].view(-1, 1)
-
-        # Get the first non-masked token from each sequence
         labels = []
         for label_seq in inputs["labels"]:
             non_masked_indices = (label_seq != -100).nonzero(as_tuple=True)[0]
             non_masked_tokens = [label_seq[idx].item() for idx in non_masked_indices]
             labels.append(1 if non_masked_tokens[-4] == self.value_token_id else 0)
-
         loss = F.binary_cross_entropy(value_probs, torch.tensor(labels, dtype=torch.float32, device=value_probs.device).view(-1, 1))
         return (loss, outputs) if return_outputs else loss
     
@@ -102,8 +76,7 @@ class ValueSFTTrainer(SFTTrainer):
             loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
         if prediction_loss_only:
             return (loss, None, None)
-        return (loss, F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id], 
-                inputs.get("true_label", inputs.get("labels")))
+        return (loss, F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id], inputs.get("labels"))
 
 class ValueTrainer:
     def __init__(self, config):
@@ -114,17 +87,14 @@ class ValueTrainer:
         self.temp_dir = tempfile.mkdtemp()
     
     def _create_trainer_config(self):
-        # Prepare lr_scheduler_kwargs if using reduce_lr_on_plateau
         lr_scheduler_kwargs = {}
         if self.config["lr_scheduler_type"] == "reduce_lr_on_plateau":
             lr_scheduler_kwargs = {
                 "factor": float(self.config["lr_scheduler_factor"]),
                 "patience": int(self.config["lr_scheduler_patience"]),
-                "threshold": float(self.config["lr_scheduler_threshold"]),
-                "min_lr": float(self.config["lr_scheduler_min_lr"]),
-                "mode": "min"
+                "threshold": float(self.config["lr_scheduler_threshold"])
             }
-            
+        
         return SFTConfig(
             output_dir=self.temp_dir,
             auto_find_batch_size=True,
@@ -157,23 +127,19 @@ class ValueTrainer:
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
         
-        # Limit dev dataset size to 5000 samples
-        dev_size = min(len(dataset["dev"]), 5000)
-        
         early_stopping_callback = EarlyStoppingCallback(
             early_stopping_patience=int(self.config["patience"]),
             early_stopping_threshold=float(self.config["improvement_tolerance"])
         )
-        
+
         loss_scaling_callback = LossScalingCallback()
-        training_loss_scheduler_callback = TrainingLossSchedulerCallback()
-        
+
         trainer = ValueSFTTrainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
-            eval_dataset=dataset["dev"].select(range(dev_size)).shuffle(seed=42),
+            eval_dataset=dataset["dev"].select(range(5000)).shuffle(seed=42),
             args=self._create_trainer_config(),
-            callbacks=[EpochProgressBar(), early_stopping_callback, loss_scaling_callback, training_loss_scheduler_callback]
+            callbacks=[EpochProgressBar(), early_stopping_callback, loss_scaling_callback],
         )
         
         # Store dataset size for progress bar calculation

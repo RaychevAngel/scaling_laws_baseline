@@ -4,6 +4,14 @@ from trl import SFTConfig, SFTTrainer
 import tempfile, shutil, torch
 from tqdm.auto import tqdm
 
+
+class LossScalingCallback(TrainerCallback):
+    """Callback to correctly scale the loss when using gradient accumulation."""
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is not None and "loss" in logs:
+            # Scale only the training loss by dividing by the number of accumulation steps
+            logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
+
 class EpochProgressBar(TrainerCallback):
     def __init__(self):
         self.progress_bar = None
@@ -13,12 +21,9 @@ class EpochProgressBar(TrainerCallback):
         if self.progress_bar is not None:
             self.progress_bar.close()
             
-        # Calculate steps per epoch using the formula:
-        # num_iteration = train_dataset_size / (per_device_train_batch_size * device_count * gradient_accumulation_steps)
         device_count = max(1, torch.cuda.device_count())
         steps_per_epoch = args.train_dataset_size // (args.per_device_train_batch_size * device_count * args.gradient_accumulation_steps)
         
-        # Set up progress bar to show epoch progress
         self.progress_bar = tqdm(
             total=steps_per_epoch,
             desc="Epoch Progress",
@@ -29,19 +34,15 @@ class EpochProgressBar(TrainerCallback):
     
     def on_step_end(self, args, state, control, **kwargs):
         if self.progress_bar is not None:
-            # Check for new epoch
             epoch_floor = int(state.epoch)
             if epoch_floor != self.current_epoch:
-                # Reset progress bar for new epoch
                 self.current_epoch = epoch_floor
                 self.progress_bar.reset()
                 self.progress_bar.set_description(f"Epoch {epoch_floor + 1}")
             
-            # Calculate progress within current epoch
             fraction_in_epoch = state.epoch - epoch_floor
             current_step = int(fraction_in_epoch * self.progress_bar.total)
             
-            # Set progress bar position directly instead of incrementing
             self.progress_bar.n = current_step
             self.progress_bar.refresh()
     
@@ -80,8 +81,6 @@ class PolicyTrainer:
                 "factor": float(self.config["lr_scheduler_factor"]),
                 "patience": int(self.config["lr_scheduler_patience"]),
                 "threshold": float(self.config["lr_scheduler_threshold"]),
-                "min_lr": float(self.config["lr_scheduler_min_lr"]),
-                "mode": "min"
             }
             
         return SFTConfig(
@@ -116,19 +115,20 @@ class PolicyTrainer:
     
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
-        dev_size = min(len(dataset["dev"]), 5000)
         
         early_stopping_callback = EarlyStoppingCallback(
             early_stopping_patience=int(self.config["patience"]),
             early_stopping_threshold=float(self.config["improvement_tolerance"])
         )
-        
+
+        loss_scaling_callback = LossScalingCallback()
+
         trainer = PolicySFTTrainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
-            eval_dataset=dataset["dev"].select(range(dev_size)).shuffle(seed=42),
+            eval_dataset=dataset["dev"].select(range(5000)).shuffle(seed=42),
             args=self._create_trainer_config(),
-            callbacks=[EpochProgressBar(), early_stopping_callback]
+            callbacks=[EpochProgressBar(), early_stopping_callback, loss_scaling_callback]
         )
         
         # Store dataset size for progress bar calculation
