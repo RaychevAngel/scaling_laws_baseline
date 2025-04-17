@@ -16,8 +16,8 @@ async def test_mcts_generation():
         config[key] += str(iteration)
     
     # Set ports manually (use the same ports as your running servers)
-    config['policy_port'] = 8906  # Replace with your actual policy server port
-    config['value_port'] = 8064   # Replace with your actual value server port
+    config['policy_port'] = 8981  # Replace with your actual policy server port
+    config['value_port'] = 8590   # Replace with your actual value server port
     
     # Create policy value function
     policy_value_fn = PolicyValueFunction(config)

@@ -8,6 +8,7 @@ from typing import List, Tuple
 import threading
 from transformers import AutoTokenizer
 import math
+import traceback  # Added for better error tracking
 
 class ValueRequest(BaseModel):
     questions_and_states: List[Tuple[str, str]]
@@ -40,30 +41,57 @@ class ValueServer:
 
         @app.post(self.endpoint)
         async def predict_value(request: ValueRequest):
-            if not app.state.value_llm:
-                print("Model not initialized")
-                raise HTTPException(status_code=500, detail="Model not initialized")
-            
-            # Get value predictions
-            texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
-            values = self._predict_value(app.state.value_llm, texts)
-            
-            return {"results": values}
+            try:
+                print(f"Received request with {len(request.questions_and_states)} questions and states")
+                
+                if not app.state.value_llm:
+                    print("ERROR: Model not initialized")
+                    raise HTTPException(status_code=500, detail="Model not initialized")
+                
+                # Get value predictions
+                texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
+                print(f"Prepared {len(texts)} texts for prediction")
+                
+                values = self._predict_value(app.state.value_llm, texts)
+                print(f"Successfully predicted {len(values)} values")
+                
+                return {"results": values}
+            except Exception as e:
+                print(f"ERROR in predict_value: {str(e)}")
+                print(traceback.format_exc())
+                raise HTTPException(status_code=500, detail=f"Error during prediction: {str(e)}")
     
     def _predict_value(self, llm, texts):
         """Predict value scores based on first token logprobs"""
-        # Configure sampling parameters
-        sampling_params = SamplingParams(max_tokens=1, logprobs=20)
-        
-        # Generate completions and extract probabilities
-        outputs = llm.generate(texts, sampling_params)
-        results = []
-        
-        for output in outputs:
-            logprob = output.outputs[0].logprobs[0][self.value_token_id].logprob
-            results.append(math.exp(logprob))
+        try:
+            # Configure sampling parameters
+            sampling_params = SamplingParams(max_tokens=1, logprobs=20)
             
-        return results
+            # Generate completions and extract probabilities
+            print("Starting LLM generation...")
+            outputs = llm.generate(texts, sampling_params)
+            print(f"LLM generation completed, processing {len(outputs)} outputs")
+            
+            results = []
+            for i, output in enumerate(outputs):
+                try:
+                    log_dict = output.outputs[0].logprobs[0]
+                    if self.value_token_id in log_dict:
+                        logprob = log_dict[self.value_token_id].logprob
+                        value = math.exp(logprob)
+                    else:
+                        value = 0.0
+                    results.append(value)
+                except Exception as e:
+                    print(f"ERROR processing output {i+1}: {str(e)}")
+                    print(f"Output structure: {output}")
+                    raise
+            
+            return results
+        except Exception as e:
+            print(f"ERROR in _predict_value: {str(e)}")
+            print(traceback.format_exc())
+            raise
     
     def start(self):
         """Start the server in a background thread"""

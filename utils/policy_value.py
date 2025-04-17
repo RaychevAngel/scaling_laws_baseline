@@ -89,6 +89,9 @@ class PolicyValueFunction:
         Returns:
             str: The appropriate suffix ("." or "\n")
         """
+        print("AAAAAAAAAAAA")
+        print(state)
+        print("BBBBBBBBBBBB")
         if len(state.split("\n")) < 4:
                         suffix = "\n"
         elif len(state.split("\n")) >= 4 and not state.rstrip().endswith(".") and not action.endswith("."):

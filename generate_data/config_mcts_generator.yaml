@@ -10,9 +10,9 @@ value_model: "AngelRaychev/value_iteration_"
 # MCTS parameters
 branch_factor: 3
 max_expansions: 20
-temperature: 1.0
+temperature: 0.3
 c_explore: 0.3
-batch_size: 50
+batch_size: 1
 
 # Target data generation parameters
 target_examples_train: 10000
