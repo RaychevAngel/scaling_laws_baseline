@@ -38,7 +38,8 @@ class MCTSTree_Generate(MCTSTree):
             else:
                 try:
                     new_states = await self.get_action_values(current)
-                    self.non_terminal_leaves.remove(current)
+                    if current in self.non_terminal_leaves:
+                        self.non_terminal_leaves.remove(current)
                     current.add_children(new_states)
                     for child in current.children:
                         if not child.is_terminal:
@@ -59,7 +60,7 @@ class MCTSForest_Generate(MCTSForest):
                  policy_value_fn: Callable, target_examples: int,
                  batch_size: int):
         super().__init__(questions, max_expansions, num_trees, c_explore, 
-                        policy_value_fn, batch_size)
+                        batch_size, policy_value_fn)
         
         # Initialize data collection
         self.policy_training_data = []

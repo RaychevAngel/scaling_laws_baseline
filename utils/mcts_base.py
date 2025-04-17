@@ -141,16 +141,16 @@ class MCTSForest:
         
         while True:
             try:
-                request = await asyncio.wait_for(self.request_queue.get(), timeout=0.1)
+                request = await asyncio.wait_for(self.request_queue.get(), timeout=1.1)
                 batch.append((request[0], request[1]))
                 futures.append(request[2])
-
                 if len(batch) >= self.batch_size or (batch and self.request_queue.empty()):
                     self.total_api_calls += len(batch)
                     current_batch, current_futures = batch, futures
-                    batch, futures = []  # Reset for next batch
+                    batch, futures = [], []  # Reset for next batch
                     asyncio.create_task(self._process_network_requests(current_batch, current_futures))
             except asyncio.TimeoutError:
+                print("Timeout error")
                 pass
             await asyncio.sleep(0.001)
 

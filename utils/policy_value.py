@@ -42,8 +42,9 @@ class PolicyValueFunction:
             # Process policy results to get next states
             next_states = []
             for (question, state), actions in zip(qs, policy_results):
+
                 states_for_this_question = [
-                    state + action + (".\n" if not state.rstrip().endswith(".") and not action.endswith(".") else "\n")
+                    state + action + self.get_suffix(state, action)
                     for action in actions
                 ]
                 next_states.append(states_for_this_question)
@@ -76,3 +77,22 @@ class PolicyValueFunction:
         except Exception as e:
             print(f"Request error: {type(e).__name__}: {str(e)}")
             return [[] for _ in qs] 
+
+    def get_suffix(self, state: str, action: str) -> str:
+        """
+        Get the appropriate suffix for concatenating state and action.
+        
+        Args:
+            state (str): The state string
+            action (str): The action string
+            
+        Returns:
+            str: The appropriate suffix ("." or "\n")
+        """
+        if len(state.split("\n")) < 4:
+                        suffix = "\n"
+        elif len(state.split("\n")) >= 4 and not state.rstrip().endswith(".") and not action.endswith("."):
+            suffix = "."
+        else:
+            suffix = ""
+        return suffix

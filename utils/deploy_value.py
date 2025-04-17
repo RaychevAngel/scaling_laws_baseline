@@ -41,6 +41,7 @@ class ValueServer:
         @app.post(self.endpoint)
         async def predict_value(request: ValueRequest):
             if not app.state.value_llm:
+                print("Model not initialized")
                 raise HTTPException(status_code=500, detail="Model not initialized")
             
             # Get value predictions

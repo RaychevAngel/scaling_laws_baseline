@@ -108,21 +108,16 @@ async def main(iteration: int):
         value_process.terminate()
         return
     
-    try:
-        policy_value_fn = PolicyValueFunction(config)
-        qs = [("Use 2,3,4,9 to make 30", "")]
-        print("Getting policy-value predictions...")
-        results = policy_value_fn(qs)
-        print("Policy-value predictions:", results)
-        
-        await RunMCTS_Generate(config, policy_value_fn).run()
-    finally:
+    #try:
+        #policy_value_fn = PolicyValueFunction(config)
+        #await RunMCTS_Generate(config, policy_value_fn).run()
+    #finally:
         # Stop servers
-        print("Stopping servers...")
-        policy_process.terminate()
-        value_process.terminate()
-        policy_process.wait()
-        value_process.wait()
+        #print("Stopping servers...")
+        #policy_process.terminate()
+        #value_process.terminate()
+        #policy_process.wait()
+        #value_process.wait()
 
 if __name__ == "__main__":
     import argparse
