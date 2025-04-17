@@ -1,7 +1,7 @@
 # Server configuration
 host: "0.0.0.0"
-port: 1
-endpoint: "/policy-value"  # API endpoint for policy-value predictions
+policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
+value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
 # Model configuration
 policy_model: "AngelRaychev/policy_iteration_"

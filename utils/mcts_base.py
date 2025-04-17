@@ -117,7 +117,8 @@ class MCTSTree:
 class MCTSForest:
     """Forest of MCTS trees for parallel exploration"""
     def __init__(self, questions: List[str], max_expansions: int, num_trees: int, 
-                 c_explore: float, policy_value_fn: Callable, batch_size: int):
+                 c_explore: float, batch_size: int,
+                 policy_value_fn: Callable[[List[Tuple[str, str]]], List[List[Tuple[str, float]]]]):
         self.questions = questions
         self.max_expansions = max_expansions
         self.num_trees = num_trees
@@ -214,36 +215,10 @@ class MCTSForest:
 
 class RunMCTS:
     """Base configuration class for MCTS"""
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, policy_value_fn: Callable[[List[Tuple[str, str]]], List[List[Tuple[str, float]]]]):
         self.config = config
         self.start_time = time.time()
-        self.policy_value_fn = self.get_policy_value
-            
-    def get_policy_value(self, qs: List[Tuple[str, str]]):
-        """Get policy samples and value estimates from the server"""
-        if not qs: 
-            return []
-            
-        try:
-            resp = requests.post(
-                url=f"http://{self.config['host']}:{self.config['port']}{self.config['endpoint']}",
-                json={
-                    "questions_and_states": qs, 
-                    "branch_factor": self.config['branch_factor'],
-                    "temperature": self.config['temperature']
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=60
-            )
-            
-            if resp.status_code == 200:
-                return resp.json()['results']
-            
-            print(f"API error: {resp.status_code} - {resp.text}")
-            return [[] for _ in qs]
-        except Exception as e:
-            print(f"Request error: {type(e).__name__}: {str(e)}")
-            return [[] for _ in qs]
+        self.policy_value_fn = policy_value_fn
         
     def _read_questions(self, path: str) -> List[str]:
         """Read questions from a file"""

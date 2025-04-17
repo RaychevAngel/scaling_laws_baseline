@@ -93,8 +93,8 @@ class MCTSForest_Generate(MCTSForest):
 class RunMCTS_Generate(RunMCTS):
     """Configuration class for MCTS training."""
     
-    def __init__(self, config: Dict):
-        super().__init__(config)
+    def __init__(self, config: Dict, policy_value_fn: Callable):
+        super().__init__(config, policy_value_fn)
         self.trajectory_processor = TrajectoryProcessor()
         
         # Load questions and initialize forests

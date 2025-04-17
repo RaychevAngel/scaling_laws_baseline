@@ -1,6 +1,6 @@
 import asyncio
 import yaml
-from utils.deploy import PolicyValueServer
+from utils.policy_value import PolicyValueServer
 from mcts_evaluator import RunMCTS_Evaluate
 
 async def main(iteration: int):
