@@ -24,10 +24,10 @@ def find_available_port():
         if not port_in_use:
             return port
 
-def wait_for_server(host, port, endpoint, config, is_policy=False, timeout=120):
+def wait_for_server(host, port, endpoint, config, is_policy=False, timeout=300):
     """Wait for a server to be ready by checking if it responds to requests."""
     url = f"http://{host}:{port}{endpoint}"
-    print(f"Waiting for server at {url} to be ready...")
+    print(f"Waiting for server at {url} to be ready (timeout={timeout}s)...")
     
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -73,9 +73,9 @@ async def main(iteration: int):
     
     # Set CUDA devices
     policy_env = os.environ.copy()
-    policy_env["CUDA_VISIBLE_DEVICES"] = "2"
+    policy_env["CUDA_VISIBLE_DEVICES"] = "4"
     value_env = os.environ.copy()
-    value_env["CUDA_VISIBLE_DEVICES"] = "3"
+    value_env["CUDA_VISIBLE_DEVICES"] = "5"
     
     # Find available ports
     config['policy_port'] = find_available_port()
@@ -123,7 +123,7 @@ async def main(iteration: int):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--iteration", type=int, default=1, help="Iteration number for evaluation")
+    parser.add_argument("--iteration", type=int, default=2, help="Iteration number for evaluation")
     args = parser.parse_args()
     
     asyncio.run(main(iteration=args.iteration))
