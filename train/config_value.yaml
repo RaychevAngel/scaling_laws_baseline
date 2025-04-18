@@ -1,8 +1,8 @@
 # Model and dataset configuration
-model_name: AngelRaychev/value_iteration_0
+model_name: AngelRaychev/value_iteration_1
 device: cuda
-hub_model_id: AngelRaychev/value_iteration_1
-dataset_file: data/pre_generated/value
+hub_model_id: AngelRaychev/value_iteration_2
+dataset_file: data/mcts_generated/value/value
 
 # Optimization parameters
 learning_rate: 1e-4
@@ -20,7 +20,7 @@ lr_scheduler_threshold: 0.001
 weight_decay: 0.01
 
 # Convergence criteria
-logging_steps: 10
-eval_steps: 100
+logging_steps: 5
+eval_steps: 10
 patience: 3
 improvement_tolerance: 0.01

@@ -32,7 +32,8 @@ class PolicyServer:
                 model=self.policy_model, 
                 tensor_parallel_size=1,
                 gpu_memory_utilization=0.9,
-                device=f"cuda:{self.gpu_id}"
+                device=f"cuda:{self.gpu_id}",
+                disable_log_stats=True  # Disable VLLM progress stats
             )
             print("Policy model loaded.")
 
@@ -40,8 +41,6 @@ class PolicyServer:
         async def predict_policy(request: PolicyRequest):
             if not app.state.policy_llm:
                 raise HTTPException(status_code=500, detail="Model not initialized")
-            
-            print(f"Received policy request: {request}")
             
             # Get policy predictions
             texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
@@ -61,12 +60,11 @@ class PolicyServer:
             n=branch_factor,
             temperature=temperature,
             max_tokens=20,  
-            stop=["\n"]
+            stop=["\n"],
+            ignore_eos=False  # Prevent the model from stopping at EOS token
         )
-        
         # Generate completions
-        outputs = llm.generate(texts, sampling_params)
-        
+        outputs = llm.generate(texts, sampling_params, use_tqdm=False)
         # Process outputs
         results = []
         for output in outputs:
@@ -106,4 +104,4 @@ if __name__ == "__main__":
         args.gpu_id
     )
     print(f"Starting server at http://{args.host}:{args.port}")
-    uvicorn.run(server.app, host=args.host, port=args.port)
+    uvicorn.run(server.app, host=args.host, port=args.port, log_level="warning")

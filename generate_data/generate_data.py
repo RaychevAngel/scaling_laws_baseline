@@ -72,9 +72,9 @@ async def main(iteration: int):
     
     # Set CUDA devices
     policy_env = os.environ.copy()
-    policy_env["CUDA_VISIBLE_DEVICES"] = "0"
+    policy_env["CUDA_VISIBLE_DEVICES"] = "2"
     value_env = os.environ.copy()
-    value_env["CUDA_VISIBLE_DEVICES"] = "1"
+    value_env["CUDA_VISIBLE_DEVICES"] = "3"
     
     # Find available ports
     config['policy_port'] = find_available_port()
@@ -108,16 +108,16 @@ async def main(iteration: int):
         value_process.terminate()
         return
     
-    #try:
-        #policy_value_fn = PolicyValueFunction(config)
-        #await RunMCTS_Generate(config, policy_value_fn).run()
-    #finally:
+    try:
+        policy_value_fn = PolicyValueFunction(config)
+        await RunMCTS_Generate(config, policy_value_fn).run()
+    finally:
         # Stop servers
-        #print("Stopping servers...")
-        #policy_process.terminate()
-        #value_process.terminate()
-        #policy_process.wait()
-        #value_process.wait()
+        print("Stopping servers...")
+        policy_process.terminate()
+        value_process.terminate()
+        policy_process.wait()
+        value_process.wait()
 
 if __name__ == "__main__":
     import argparse

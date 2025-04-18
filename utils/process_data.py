@@ -37,7 +37,7 @@ class TrajectoryProcessor:
                     "completion": completion
                 }
                 all_data.append(data_item)
-                state.append(action)  # state grows as actions are added
+                state.append(action)
         return all_data
 
     def process_value_trajectory(self, value_data: List[Tuple[str, str, float]]) -> List[dict]:

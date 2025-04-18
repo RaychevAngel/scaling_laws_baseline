@@ -126,7 +126,7 @@ class PolicyTrainer:
         trainer = PolicySFTTrainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
-            eval_dataset=dataset["dev"].select(range(5000)).shuffle(seed=42),
+            eval_dataset=dataset["dev"].select(range(1000)).shuffle(seed=42),
             args=self._create_trainer_config(),
             callbacks=[EpochProgressBar(), early_stopping_callback, loss_scaling_callback]
         )

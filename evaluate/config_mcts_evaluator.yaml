@@ -1,28 +1,28 @@
 # Server configuration
 host: "0.0.0.0"
-port: 2
-endpoint: "/policy-value"  # API endpoint for policy-value predictions
+policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
+value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
 # Model configuration
-policy_model: "AngelRaychev/policy_model_iteration_"  # Base name for policy model
-value_model: "AngelRaychev/value_model_iteration_"    # Base name for value model
+policy_model: "AngelRaychev/policy_iteration_"  # Base name for policy model
+value_model: "AngelRaychev/value_iteration_"    # Base name for value model
 
 # MCTS parameters
 branch_factor: 3
 max_expansions: 20
 temperature: 1
 c_explore: 0.3
-batch_size: 50
+batch_size: 200
 
 # Evaluation configuration
 max_iterations: 10
 stats_interval: 20
-delta: 0.05
-epsilon: 0.01
+delta: 0.1
+epsilon: 0.02
 
 # Data paths
-test_questions_path: "../questions/test.txt"
-export_data_path: "../results/evaluation_iteration_"
+test_questions_path: "questions/test.txt"
+export_data_path: "results/evaluation_iteration_"
 
 # Runtime configuration
 stats_interval: 20 

@@ -117,6 +117,10 @@ def export_data(policy_data_train, value_data_train, policy_data_dev, value_data
     processor = TrajectoryProcessor()
     policy_output_dir = "../data/pre_generated/policy"
     value_output_dir = "../data/pre_generated/value"
+    print("AAAAAAAAAAAA")
+    print(policy_data_train[0:10])
+    print("BBBBBBBBBBBB")
+    print(value_data_train[0:10])
     processor.export_data(policy_data_train, value_data_train, 
                           policy_data_dev, value_data_dev, 
                           policy_output_dir, value_output_dir)

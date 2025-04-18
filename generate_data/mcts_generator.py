@@ -22,7 +22,7 @@ class MCTSTree_Generate(MCTSTree):
     async def search(self):
         """Perform MCTS search and collect training data."""
         current = self.root
-        while (self.expansion_count < self.max_expansions and self.non_terminal_leaves):
+        while (self.root.visit_count < self.max_expansions):
             if current.has_children:
                 current = self.select_child(current)
             elif current.is_terminal:
@@ -38,18 +38,11 @@ class MCTSTree_Generate(MCTSTree):
             else:
                 try:
                     new_states = await self.get_action_values(current)
-                    if current in self.non_terminal_leaves:
-                        self.non_terminal_leaves.remove(current)
                     current.add_children(new_states)
-                    for child in current.children:
-                        if not child.is_terminal:
-                            self.non_terminal_leaves.append(child)
-                    self.expansion_count += 1
                 except Exception as e:
                     print(f"Expansion error: {e}")
                     break
             await asyncio.sleep(0)
-
         return self.deduplicate_trajectories(self.policy_training_data, self.value_training_data)
 
 class MCTSForest_Generate(MCTSForest):

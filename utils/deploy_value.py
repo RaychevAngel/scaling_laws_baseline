@@ -30,7 +30,7 @@ class ValueServer:
         @app.on_event("startup")
         async def startup():
             print("Loading value model...")
-            app.state.value_llm = LLM(model=self.value_model, tensor_parallel_size=1)
+            app.state.value_llm = LLM(model=self.value_model, tensor_parallel_size=1, disable_log_stats=True)
             print("Value model loaded.")
             
             # Set the value token ID for "1"
@@ -42,18 +42,14 @@ class ValueServer:
         @app.post(self.endpoint)
         async def predict_value(request: ValueRequest):
             try:
-                print(f"Received request with {len(request.questions_and_states)} questions and states")
-                
                 if not app.state.value_llm:
                     print("ERROR: Model not initialized")
                     raise HTTPException(status_code=500, detail="Model not initialized")
                 
                 # Get value predictions
                 texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
-                print(f"Prepared {len(texts)} texts for prediction")
                 
                 values = self._predict_value(app.state.value_llm, texts)
-                print(f"Successfully predicted {len(values)} values")
                 
                 return {"results": values}
             except Exception as e:
@@ -66,11 +62,7 @@ class ValueServer:
         try:
             # Configure sampling parameters
             sampling_params = SamplingParams(max_tokens=1, logprobs=20)
-            
-            # Generate completions and extract probabilities
-            print("Starting LLM generation...")
-            outputs = llm.generate(texts, sampling_params)
-            print(f"LLM generation completed, processing {len(outputs)} outputs")
+            outputs = llm.generate(texts, sampling_params, use_tqdm=False)
             
             results = []
             for i, output in enumerate(outputs):
@@ -121,4 +113,4 @@ if __name__ == "__main__":
         args.endpoint
     )
     print(f"Starting server at http://{args.host}:{args.port}")
-    uvicorn.run(server.app, host=args.host, port=args.port)
+    uvicorn.run(server.app, host=args.host, port=args.port, log_level="warning")

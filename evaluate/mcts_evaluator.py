@@ -16,7 +16,12 @@ class MCTSTree_Evaluate(MCTSTree):
         current = self.root
         while current.has_children:
             current = current.favourite_child
-        return int(current.evaluate_terminal_state(self.question))
+        # Check if the final node is actually terminal before evaluating
+        if current.is_terminal:
+            return int(current.evaluate_terminal_state(self.question))
+            
+        else:
+            return 0
 
     async def search(self):
         """Perform MCTS search for evaluation."""
@@ -54,7 +59,7 @@ class MCTSForest_Evaluate(MCTSForest):
                  policy_value_fn: Callable, batch_size: int,
                  delta: float, epsilon: float):
         super().__init__(questions, max_expansions, num_trees, c_explore, 
-                        policy_value_fn, batch_size)
+                        batch_size, policy_value_fn)
         
         self.required_examples = math.ceil((1/(2*(epsilon**2))) * math.log(2/delta))
         self.results = []
@@ -84,8 +89,8 @@ class MCTSForest_Evaluate(MCTSForest):
 class RunMCTS_Evaluate(RunMCTS):
     """Configuration class for MCTS evaluation."""
     
-    def __init__(self, config: Dict):
-        super().__init__(config)
+    def __init__(self, config: Dict, policy_value_fn: Callable):
+        super().__init__(config, policy_value_fn)
         
         # Load questions and initialize forest
         self.questions_test = self._load_questions()
