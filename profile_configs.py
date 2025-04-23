@@ -244,6 +244,13 @@ with open('{test_script}') as f:
             f.write(json.dumps(result['config_changes'], indent=2))
             f.write("\n```\n\n")
 
+    # Initialize ranking variables to avoid UnboundLocalError
+    successful_results = []
+    time_sorted = []
+    memory_sorted = []
+    loss_sorted = []
+    sorted_combined = []
+
     # Create rankings in multiple categories
     try:
         # Filter for successful runs
@@ -387,6 +394,8 @@ with open('{test_script}') as f:
             if config_changes:
                 changes_str = ", ".join(f"{k}={v}" for k, v in config_changes.items())
                 print(f"     Changes: {changes_str}")
+    else:
+        print("  No combined rankings available")
 
     print(f"\nDetailed results saved to: {results_dir}")
     print(f"See {results_dir}/rankings.md for full rankings")
