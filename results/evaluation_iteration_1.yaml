@@ -1,4 +1,4 @@
-accuracy: 0.03879849812265332
+accuracy: 0.03754693366708386
 batch_size: 100
 branch_factor: 3
 c_explore: 0.3
@@ -9,10 +9,10 @@ host: 0.0.0.0
 max_expansions: 20
 policy_endpoint: /policy-prediction
 policy_model: AngelRaychev/0.5B-policy-iteration_1
-policy_port: 8251
+policy_port: 8843
 stats_interval: 30
 temperature: 0.5
 test_questions_path: questions/test.txt
 value_endpoint: /value-prediction
 value_model: AngelRaychev/0.5B-value-iteration_1
-value_port: 8034
+value_port: 8247
