@@ -44,4 +44,11 @@ ENV/
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+CHANGELOG.md
+REPORT_MFU.md
+ACTIVE_CONTEXT.md
+
+# Profile results
+profiling_results/**/
+

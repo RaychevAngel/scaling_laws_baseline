@@ -14,8 +14,8 @@ class PolicyValueFunction:
             
         try:
             for i, (q,s) in enumerate(qs):
-                if s.count("\n") == 3:
-                    qs[i] = (q, s + "The answer is: ")
+                if len(s.split("\n")) >= 4:
+                    qs[i] = (q, s + "The answer is:")
 
             policy_resp = requests.post(
                 url=f"http://{self.config['host']}:{self.config['policy_port']}{self.config['policy_endpoint']}",
@@ -36,11 +36,28 @@ class PolicyValueFunction:
             # Process policy results to get next states
             next_states = []
             for (question, state), actions in zip(qs, policy_results):
+                clean_state = self.clean_text(state)
                 states_for_this_question = []
+                # Iterate through each action proposed for the current state
                 for action in actions:
-                    if action != "":
-                        new_state = state + action + "\n"
-                        states_for_this_question.append(new_state) 
+                    if clean_state.endswith("The answer is:"):
+                        # If state already ends with the prompt, just append the action
+                        new_state = clean_state + action
+                    else:
+                        # Otherwise, construct the new state more carefully
+                        clean_action = self.clean_text(action)
+                        if state != "" and action != "":
+                            new_state = clean_state + "\n" + clean_action
+                        elif state != "":
+                            new_state = clean_state
+                        elif action != "":
+                            new_state = clean_action
+                        else:
+                            new_state = ""
+                        new_state = new_state + self.get_suffix(new_state) # Apply suffix logic
+                    states_for_this_question.append(new_state) 
+                
+                # Append all generated states for this question to the main list
                 next_states.append(states_for_this_question)
             
             # Get value predictions for all next states
@@ -68,4 +85,20 @@ class PolicyValueFunction:
             
         except Exception as e:
             print(f"Request error: {type(e).__name__}: {str(e)}")
-            return [[] for _ in qs]
+            return [[] for _ in qs] 
+
+    def clean_text(self, text: str) -> str:
+        """Clean text by removing double newlines and trimming newlines from start and end."""
+        text = text.replace("\n\n", "\n").strip("\n")
+        return "" if text == "\n" else text
+
+    def get_suffix(self, state: str) -> str:
+        """Get the appropriate suffix for the state."""
+        if state == "":
+            return ""
+        elif len(state.split("\n")) < 4:
+            return "\n"
+        elif not state.rstrip().endswith("."):
+            return "."
+        else:
+            return ""

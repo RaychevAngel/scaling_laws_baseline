@@ -12,59 +12,58 @@ class PolicyRequest(BaseModel):
     temperature: float
 
 class PolicyServer:
-    def __init__(self, policy_model: str, host: str, port: int, endpoint: str, revision: str=None):
+    def __init__(self, policy_model: str, host: str, port: int, endpoint: str, gpu_id: int = 0):
         self.policy_model = policy_model
         self.host = host
         self.port = port
         self.endpoint = endpoint
+        self.gpu_id = gpu_id
         self.app = FastAPI(title="Policy Predictor API")
         self.setup_app()
         self.server_thread = None
-        self.revision = revision
+
     def setup_app(self):
         app = self.app
-        
+
         @app.on_event("startup")
         async def startup():
-            print(f"Loading policy model...")
-            if self.revision:
-                print(f"Using revision: {self.revision}")
-            
-            try:
-                app.state.policy_llm = LLM(
-                    model=self.policy_model,
-                    tensor_parallel_size=1,
-                    disable_log_stats=True,
-                    revision=self.revision
-                )
-                print("Policy model loaded.")
-            except Exception as e:
-                print(f"Error loading model: {e}")
-                raise
+            print(f"Loading policy model on GPU {self.gpu_id}...")
+            app.state.policy_llm = LLM(
+                model=self.policy_model,
+                tensor_parallel_size=1,
+                gpu_memory_utilization=0.9,
+                device=f"cuda:{self.gpu_id}",
+                disable_log_stats=True,  # Disable VLLM progress stats
+
+                # new: larger auto-batch caps – higher sm occupancy
+                max_num_batched_tokens = 2048,
+                max_num_seqs = 512,
+            )
+            print("Policy model loaded.")
 
         @app.post(self.endpoint)
         async def predict_policy(request: PolicyRequest):
             if not app.state.policy_llm:
                 raise HTTPException(status_code=500, detail="Model not initialized")
-            
+
             # Get policy predictions
             texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
             policy_response = self._predict_policy(
-                app.state.policy_llm, 
-                texts, 
-                request.temperature, 
+                app.state.policy_llm,
+                texts,
+                request.temperature,
                 request.branch_factor
             )
-            
+
             return {"results": policy_response}
-    
+
     def _predict_policy(self, llm, texts, temperature, branch_factor):
         """Generate policy (action) predictions using beam search"""
         # Configure sampling parameters for policy prediction
         sampling_params = SamplingParams(
             n=branch_factor,
             temperature=temperature,
-            max_tokens=20,  
+            max_tokens=20,
             stop=["\n"],
             ignore_eos=False  # Prevent the model from stopping at EOS token
         )
@@ -76,9 +75,9 @@ class PolicyServer:
             # Extract unique actions
             beams = set(o.text.strip() for o in output.outputs)
             results.append(list(beams))
-            
+
         return results
-    
+
     def start(self):
         """Start the server in a background thread"""
         self.server_thread = threading.Thread(
@@ -87,7 +86,7 @@ class PolicyServer:
         self.server_thread.daemon = True
         self.server_thread.start()
         print(f"Server started: http://{self.host}:{self.port}")
-        
+
     def stop(self):
         """Server terminates when main program exits"""
         pass
@@ -98,13 +97,15 @@ if __name__ == "__main__":
     parser.add_argument("--host", required=True, help="Host address to bind to")
     parser.add_argument("--port", type=int, required=True, help="Port to listen on")
     parser.add_argument("--endpoint", required=True, help="API endpoint path")
+    parser.add_argument("--gpu_id", type=int, default=0, help="GPU device ID to use")
     args = parser.parse_args()
-    
+
     server = PolicyServer(
         args.policy_model,
-        args.host, 
-        args.port, 
-        args.endpoint
+        args.host,
+        args.port,
+        args.endpoint,
+        args.gpu_id
     )
     print(f"Starting server at http://{args.host}:{args.port}")
     uvicorn.run(server.app, host=args.host, port=args.port, log_level="warning")

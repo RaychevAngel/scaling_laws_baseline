@@ -24,13 +24,13 @@ def remove_unnecessary_parentheses(expr: str) -> str:
         elif char == ')' and stack:
             start = stack.pop()
             pairs.append((start, i))
-    
+
     to_remove = []
     for start, end in pairs:
         new_expr = expr[:start] + expr[start+1:end] + expr[end+1:]
         if evaluate_expression(new_expr) == evaluate_expression(expr):
             to_remove.extend([start, end])
-    
+
     expr_list = list(expr)
     for i in sorted(to_remove, reverse=True):
         expr_list.pop(i)
@@ -38,12 +38,12 @@ def remove_unnecessary_parentheses(expr: str) -> str:
 
 def process_calculation(numbers, operations, pattern):
     """Calculate a math problem with given numbers, operations, and pattern.
-    
+
     Args:
         numbers: List of 4 integers to use in calculation
         operations: List of 3 operations ('+', '-', '*', '/')
         pattern: 1 for ((a op1 b) op2 c) op3 d, 2 for (a op1 b) op3 (c op2 d)
-    
+
     Returns:
         Dictionary containing problem details or None if invalid
     """
@@ -73,7 +73,7 @@ def process_calculation(numbers, operations, pattern):
                 f"{results[0]}{operations[2]}{results[1]}={results[2]} (left: {results[2]})\n"
             ]
             expr = f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})"
-        
+
         # Only return if result is an integer
         if float(results[2]).is_integer():
             return {
@@ -81,7 +81,7 @@ def process_calculation(numbers, operations, pattern):
                 'target': results[2],
                 'question': f"Use {', '.join(map(str, sorted(numbers)))} to make {results[2]}.",
                 'solution': ''.join(solution),
-                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}= {results[2]}.\n"
+                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}={results[2]}.\n"
             }
         return None
     except:
@@ -91,47 +91,61 @@ def generate_random_negative_example(problem):
     """Generate a random incorrect solution for a problem."""
     numbers = problem['numbers']
     target = problem['target']
-    
+
     while True:
         random_ops = random.sample(["+", "-", "*", "/"], 3)
         random_pattern = random.choice([1, 2])
         random_result = process_calculation(numbers, random_ops, random_pattern)
-        
+
         if random_result and abs(random_result['target'] - target) > 0.001:
             return (problem['question'], random_result['solution'] + random_result['answer'], 0.0)
-        
+
 def save_questions(train_questions, dev_questions, test_questions):
     """Save questions to files."""
-    # Create questions directory if it doesn't exist
-    os.makedirs("../questions", exist_ok=True)
-    
-    with open("../questions/train.txt", "w") as f:
+    # create questions directory if it doesn't exist
+    # old path outside project directory
+    # os.makedirs("../questions", exist_ok=True)
+
+    # new path within project directory
+    os.makedirs("data/questions", exist_ok=True)
+
+    with open("data/questions/train.txt", "w") as f:
         f.write("\n".join(train_questions))
-    with open("../questions/dev.txt", "w") as f:
+    with open("data/questions/dev.txt", "w") as f:
         f.write("\n".join(dev_questions))
-    with open("../questions/test.txt", "w") as f:
+    with open("data/questions/test.txt", "w") as f:
         f.write("\n".join(test_questions))
 
 def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
     """Export the generated data using the processor."""
     processor = TrajectoryProcessor()
-    policy_output_dir = "data/pre_generated/policy"
-    value_output_dir = "data/pre_generated/value"
-    processor.export_data(policy_data_train, value_data_train, 
-                          policy_data_dev, value_data_dev, 
+    # old paths pointing outside the project directory
+    # policy_output_dir = "../data/pre_generated/policy"
+    # value_output_dir = "../data/pre_generated/value"
+
+    # new paths matching what training scripts expect
+    policy_output_dir = "data/mcts_generated/policy/policy"
+    value_output_dir = "data/mcts_generated/value/value"
+
+    print("AAAAAAAAAAAA")
+    print(policy_data_train[0:10])
+    print("BBBBBBBBBBBB")
+    print(value_data_train[0:10])
+    processor.export_data(policy_data_train, value_data_train,
+                          policy_data_dev, value_data_dev,
                           policy_output_dir, value_output_dir)
 
 # --- Main dataset creation function ---
 def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     """Create the full dataset for arithmetic reasoning problems."""
-    
+
     # 1. Generate all possible problems
     problems = []
     list_of_numbers = list(product(range(range_start, range_end+1), repeat=4))
     list_of_operations = list(product(operations, repeat=3))
-    
+
     total_combinations = len(list_of_numbers) * len(list_of_operations) * 2
-    
+
     with tqdm(total=total_combinations, desc="Generating problems") as pbar:
         for numbers in list_of_numbers:
             for operations in list_of_operations:
@@ -140,48 +154,48 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
                     if problem:
                         problems.append(problem)
                     pbar.update(1)
-    
+
     print(f"Generated {len(problems)} valid problems")
-    
+
     # 2. Shuffle and deduplicate problems
     random.shuffle(problems)
     seen_questions = set()
     unique_problems = []
-    
+
     with tqdm(total=len(problems), desc="Deduplicating problems") as pbar:
         for p in problems:
             if p['question'] not in seen_questions:
                 seen_questions.add(p['question'])
                 unique_problems.append(p)
             pbar.update(1)
-    
+
     problems = unique_problems
     print(f"After deduplication: {len(problems)} unique problems")
-    
+
     # 3. Split into train, dev, test
     train_problems = problems[40000:]
     dev_problems = problems[20000:40000]
     test_problems = problems[:20000]
-    
+
     print(f"Split into {len(train_problems)} training, {len(dev_problems)} dev, and {len(test_problems)} test problems")
-    
+
     # 4. Extract questions for each split
     train_questions = [p['question'] for p in train_problems]
     dev_questions = [p['question'] for p in dev_problems]
     test_questions = [p['question'] for p in test_problems]
-    
+
     # 5. Save questions to files
     print("Saving questions to files...")
     save_questions(train_questions, dev_questions, test_questions)
-    
+
     # 6. Create policy data (question, solution pairs)
     train_policy_data = [(p['question'], p['solution'] + p['answer']) for p in train_problems]
     dev_policy_data = [(p['question'], p['solution'] + p['answer']) for p in dev_problems]
-    
+
     # 7. Create value data (positive examples with score 1.0)
     train_value_data = [(q, s, 1.0) for q, s in train_policy_data]
     dev_value_data = [(q, s, 1.0) for q, s in dev_policy_data]
-    
+
     # 8. Add negative examples (incorrect solutions with score 0.0)
     print("Generating negative examples for training data...")
     with tqdm(total=len(train_problems), desc="Training negative examples") as pbar:
@@ -190,7 +204,7 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
             if negative_example:
                 train_value_data.append(negative_example)
             pbar.update(1)
-    
+
     print("Generating negative examples for dev data...")
     with tqdm(total=len(dev_problems), desc="Dev negative examples") as pbar:
         for problem in dev_problems:
@@ -198,7 +212,7 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
             if negative_example:
                 dev_value_data.append(negative_example)
             pbar.update(1)
-    
+
     # 9. Export all data
     print("Exporting data to files...")
     export_data(train_policy_data, train_value_data, dev_policy_data, dev_value_data)

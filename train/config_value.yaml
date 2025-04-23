@@ -1,14 +1,15 @@
 # Model and dataset configuration
-model_name: AngelRaychev/value_iteration_
+model_name: AngelRaychev/value_iteration_1
 device: cuda
-hub_model_id: AngelRaychev/value_iteration_
-dataset_file: data/mcts_generated/value/iteration_
+hub_model_id: AngelRaychev/value_iteration_2
+dataset_file: data/mcts_generated/value/value
 
 # Optimization parameters
-learning_rate: 5e-5
+learning_rate: 1e-4
 lr_scheduler_type: "reduce_lr_on_plateau"
 optimizer: "adamw_torch"
-accumulation_steps: 4
+accumulation_steps: 2
+per_device_train_batch_size: 128
 max_grad_norm: 1.0
 
 # Custom learning rate scheduler parameters
@@ -20,7 +21,13 @@ lr_scheduler_threshold: 0.001
 weight_decay: 0.01
 
 # Convergence criteria
-logging_steps: 10
+logging_steps: 5
 eval_steps: 10
-patience: 8
-improvement_tolerance: 0.001
+patience: 3
+improvement_tolerance: 0.01
+
+# Performance optimization flags
+compile_model: true  # Enable torch.compile for higher GPU utilization
+use_fsdp: false       # Enable FSDP for memory-efficient training
+enable_profiling: false  # Enable profiling (reduces performance when true)
+use_gradient_checkpointing: true  # Reduce memory usage by recomputing forward pass

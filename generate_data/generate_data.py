@@ -1,135 +1,130 @@
 import asyncio
+import yaml
 import subprocess
 import time
 import os
 import requests
 import socket
+import signal
+import psutil
 import random
-from typing import Dict
+from typing import List, Tuple
 from generate_data.mcts_generator import RunMCTS_Generate
 from utils.policy_value import PolicyValueFunction
+from utils.env_config import get_hf_user
 
-class DataGenerator:
-    def __init__(self, config: Dict, policy_gpu: int, value_gpu: int):
-        self.policy_gpu = policy_gpu
-        self.value_gpu = value_gpu
-        self.policy_process = None
-        self.value_process = None
-        self.config = config
+def find_available_port():
+    """Find a random available port and update config."""
+    print(f"Finding available port...")
 
-    def _find_available_port(self):
-        while True:
-            port = random.randint(8000, 9000)
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                if s.connect_ex(('127.0.0.1', port)) != 0:
-                    return port
+    while True:
+        port = random.randint(8000, 9000)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            port_in_use = s.connect_ex(('localhost', port)) == 0
+        if not port_in_use:
+            return port
 
-    def _wait_for_server(self, server_type: str, host: str, port: int, endpoint: str, is_policy: bool, timeout: int = 300):
-        url = f"http://{host}:{port}{endpoint}"
-        print(f"Waiting for {server_type} server...")
-        start_time = time.time()
-        last_error = ""
-        
-        while time.time() - start_time < timeout:
-            try:
-                with socket.create_connection((host, port), timeout=0.5):
-                    request_data = {"questions_and_states": [["ping", ""]]}
+def wait_for_server(host, port, endpoint, config, is_policy=False, timeout=120):
+    """Wait for a server to be ready by checking if it responds to requests."""
+    url = f"http://{host}:{port}{endpoint}"
+    print(f"Waiting for server at {url} to be ready...")
+
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            if socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect_ex((host, port)) == 0:
+                try:
+                    # Different request format for policy vs value endpoints
                     if is_policy:
-                        request_data["branch_factor"] = 1
-                        request_data["temperature"] = 0.0
-                    
-                    response = requests.post(url, json=request_data, headers={"Content-Type": "application/json"}, timeout=2)
-                    
-                    if response.status_code < 500:
-                        return True
+                        request_data = {
+                            "questions_and_states": [["Use 2,3,4,9 to make 30", ""]],
+                            "branch_factor": config.get('branch_factor', 3),
+                            "temperature": config.get('temperature', 1.0)
+                        }
                     else:
-                        last_error = f"Server responded with status {response.status_code}"
-            except requests.exceptions.RequestException as e:
-                last_error = f"Request failed: {e}"
-            except Exception as e:
-                last_error = f"Connection/request error: {e}"
+                        request_data = {
+                            "questions_and_states": [["Use 2,3,4,9 to make 30", ""]]
+                        }
 
-            time.sleep(1.5)
-        
-        print(f"ERROR: Timeout waiting for {server_type} server. Last error: {last_error}")
-        return False
+                    response = requests.post(url, json=request_data,
+                                    headers={"Content-Type": "application/json"}, timeout=1)
+                    if response.status_code < 500:
+                        print(f"Server at {url} is ready!")
+                        print(f"Test response: {response.json()}")
+                        return True
+                except Exception as e:
+                    print(f"Request error: {str(e)}")
+                    pass
+        except:
+            pass
+        time.sleep(1)
 
-    def _start_server(self, server_type: str, script_path: str, model_key: str, port_key: str, endpoint_key: str, gpu_id: int) -> bool:
-        env = os.environ.copy()
-        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        
-        required_keys = ['host', model_key, endpoint_key]
-        if not all(key in self.config for key in required_keys):
-            print(f"ERROR: Missing required config keys for {server_type} server")
-            return False
-            
-        port = self._find_available_port()
-        self.config[port_key] = port
-        host = self.config['host']
-        model = self.config[model_key]
-        endpoint = self.config[endpoint_key]
-        
-        cmd = ["python", script_path, 
-               f"--{model_key.replace('_key', '')}", model,
-               "--host", host, 
-               "--port", str(port), 
-               "--endpoint", endpoint]
-               
-        print(f"Starting {server_type} server on GPU {gpu_id}...")
-        try:
-            process = subprocess.Popen(cmd, env=env)
-        except FileNotFoundError:
-             print(f"ERROR: Script not found: {script_path}")
-             return False
-        except Exception as e:
-             print(f"ERROR: Failed to start {server_type} server: {e}")
-             return False
-             
-        setattr(self, f"{server_type}_process", process)
+    print(f"Timeout waiting for server at {url}")
+    return False
 
-        is_policy = (server_type == "policy")
-        if not self._wait_for_server(server_type, host, port, endpoint, is_policy=is_policy):
-            print(f"Terminating failed {server_type} server...")
-            process.kill()
-            process.wait()
-            setattr(self, f"{server_type}_process", None)
-            return False
-            
-        return True
+async def main(iteration: int):
+    # Load configuration
+    with open('generate_data/config_mcts_generator.yaml', 'r') as f:
+        config = yaml.safe_load(f)
 
-    async def run(self):
-        try:
-            print("--- Starting Servers ---")
-            if not self._start_server("policy", "utils/deploy_policy.py", "policy_model", "policy_port", "policy_endpoint", self.policy_gpu):
-                print("Aborting: policy server failed")
-                return
-            if not self._start_server("value", "utils/deploy_value.py", "value_model", "value_port", "value_endpoint", self.value_gpu):
-                print("Aborting: value server failed")
-                return
-            
-            print("--- Running MCTS Data Generation ---")
-            policy_value_fn = PolicyValueFunction(self.config)
-            mcts_runner = RunMCTS_Generate(self.config, policy_value_fn)
-            await mcts_runner.run()
-            print("--- MCTS Data Generation Complete ---")
-            
-        except AttributeError as e:
-             print(f"ERROR: Missing config key: {e}")
-        except Exception as e:
-            print(f"ERROR: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            print("--- Stopping Servers ---")
-            def stop_process(process, name):
-                if process:
-                    process.kill()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        print(f"Warning: {name} server did not terminate quickly")
-                    except Exception as e:
-                        print(f"Error during {name} server shutdown: {e}")
-                
-            stop_process(self.policy_process, "policy")
-            stop_process(self.value_process, "value")
+    # Keep the source models unchanged - we're only loading from them
+
+    # Update iteration-specific paths
+    for key in ['policy_data_path', 'value_data_path', 'policy_model', 'value_model']:
+        config[key] += str(iteration)
+
+    # Set CUDA devices
+    policy_env = os.environ.copy()
+    policy_env["CUDA_VISIBLE_DEVICES"] = "2"
+    value_env = os.environ.copy()
+    value_env["CUDA_VISIBLE_DEVICES"] = "3"
+
+    # Find available ports
+    config['policy_port'] = find_available_port()
+    config['value_port'] = find_available_port()
+
+
+    # Start policy server
+    policy_cmd = ["python", "utils/deploy_policy.py", "--policy_model", config['policy_model'],
+                 "--host", config['host'], "--port", str(config['policy_port']),
+                 "--endpoint", config['policy_endpoint']]
+    print(f"Starting policy server on {config['host']}:{config['policy_port']} (GPU 0)")
+    policy_process = subprocess.Popen(policy_cmd, env=policy_env)
+
+    # Wait for policy server
+    if not wait_for_server(config['host'], config['policy_port'], config['policy_endpoint'], config, is_policy=True):
+        print("Policy server failed to start. Terminating...")
+        policy_process.terminate()
+        return
+
+    # Start value server
+    value_cmd = ["python", "utils/deploy_value.py", "--value_model", config['value_model'],
+                "--host", config['host'], "--port", str(config['value_port']),
+                "--endpoint", config['value_endpoint']]
+    print(f"Starting value server on {config['host']}:{config['value_port']} (GPU 1)")
+    value_process = subprocess.Popen(value_cmd, env=value_env)
+
+    # Wait for value server
+    if not wait_for_server(config['host'], config['value_port'], config['value_endpoint'], config, is_policy=False):
+        print("Value server failed to start. Terminating...")
+        policy_process.terminate()
+        value_process.terminate()
+        return
+
+    try:
+        policy_value_fn = PolicyValueFunction(config)
+        await RunMCTS_Generate(config, policy_value_fn).run()
+    finally:
+        # Stop servers
+        print("Stopping servers...")
+        policy_process.terminate()
+        value_process.terminate()
+        policy_process.wait()
+        value_process.wait()
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--iteration", type=int, default=1, help="Iteration number for data generation")
+    args = parser.parse_args()
+    asyncio.run(main(iteration=args.iteration))

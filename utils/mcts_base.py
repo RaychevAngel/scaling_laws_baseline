@@ -15,7 +15,7 @@ class MCTSNode:
         self.visit_count = visit_count  # N
         self.action_value = action_value  # Q
         self.value_estimate = value_estimate  # V
-        self.is_terminal = "The answer is:" in self.state
+        self.is_terminal = self.state.endswith('.') or self.state.endswith('.\n')
 
     @property
     def is_visited(self) -> bool: return self.visit_count > 0
@@ -43,8 +43,8 @@ class MCTSNode:
             target = int(target_match.group(1))
             question_nums = sorted([int(x.strip()) for x in numbers_match.group(1).split(',')])
             
-            last_line = self.state.split('\n')[3].removeprefix("The answer is: ").removesuffix(".")
-            
+            # Check solution
+            last_line = self.state.split('\n')[-1]
             equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(\d+)', last_line)
             if not equation_match:
                 return 0.0
