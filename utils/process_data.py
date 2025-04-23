@@ -159,8 +159,8 @@ class TrajectoryProcessor:
 
 if __name__ == "__main__":
     processor = TrajectoryProcessor()
-    question = "3 7 11 12"
-    trajectory = "3+11=14 (left: 7, 12, 14)\n7/14=0.5 (left: 12, 0.5)\n12/0.5=24.0 (left: 24.0)\nThe solution is: 12/(7/(3+11))=24.0."
+    question = "Use 3, 7, 11, 12 to make 24"
+    trajectory = "3+11=14 (left: 7, 12, 14)\n7/14=0.5 (left: 12, 0.5)\n12/0.5=24.0 (left: 24.0)\nThe answer is: 12/(7/(3+11))=24.0."
     
     train_policy_data = [(question, trajectory)]
     train_value_data = [(question, trajectory, 1.0)]

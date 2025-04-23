@@ -12,24 +12,14 @@ class MCTSTree_Generate(MCTSTree):
         self.policy_training_data = []
         self.value_training_data = []
 
-    def deduplicate_trajectories(self, policy_data: list, value_data: list):
-        """Deduplicate trajectories and store them as training data."""
-        value_data = list(set(value_data))
-        if policy_data:
-            policy_data = random.choices(policy_data, k=len(value_data))
-        return policy_data, value_data
-
     async def search(self):
         """Perform MCTS search and collect training data."""
         current = self.root
-        while (self.root.visit_count < self.max_expansions):
+        while self.expansion_count < self.max_expansions and self.non_terminal_leaves:
             if current.has_children:
                 current = self.select_child(current)
             elif current.is_terminal:
                 label = current.evaluate_terminal_state(self.question)
-                self.value_training_data.append((self.question, current.state, label))
-                if label:    
-                    self.policy_training_data.append((self.question, current.state))
                 self.backpropagate(current, label)
                 current = self.root
             elif not current.is_visited:
@@ -38,12 +28,25 @@ class MCTSTree_Generate(MCTSTree):
             else:
                 try:
                     new_states = await self.get_action_values(current)
-                    current.add_children(new_states)
+                    if len(new_states) > 0:
+                        self.non_terminal_leaves.remove(current)
+                        current.add_children(new_states)
+                        for child in current.children:
+                            if child.is_terminal:
+                                label = child.evaluate_terminal_state(self.question)
+                                self.value_training_data.append((self.question, child.state, label))
+                                if label:
+                                    self.policy_training_data.append((self.question, child.state))
+                            else:
+                                self.non_terminal_leaves.append(child)
+                    self.expansion_count += 1
                 except Exception as e:
-                    print(f"Expansion error: {e}")
-                    break
+                    print(f"Expansion error at state '{current.state}': {e}")
+                    break # Exit loop on expansion error
             await asyncio.sleep(0)
-        return self.deduplicate_trajectories(self.policy_training_data, self.value_training_data)
+        print(self.policy_training_data)
+        print(self.value_training_data)
+        return self.policy_training_data, self.value_training_data
 
 class MCTSForest_Generate(MCTSForest):
     """Forest of MCTS trees for training."""

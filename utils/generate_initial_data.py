@@ -1,4 +1,4 @@
-from process_data import TrajectoryProcessor
+from utils.process_data import TrajectoryProcessor
 import random
 from itertools import product
 import os
@@ -81,7 +81,7 @@ def process_calculation(numbers, operations, pattern):
                 'target': results[2],
                 'question': f"Use {', '.join(map(str, sorted(numbers)))} to make {results[2]}.",
                 'solution': ''.join(solution),
-                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}={results[2]}.\n"
+                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}= {results[2]}.\n"
             }
         return None
     except:
@@ -115,12 +115,8 @@ def save_questions(train_questions, dev_questions, test_questions):
 def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
     """Export the generated data using the processor."""
     processor = TrajectoryProcessor()
-    policy_output_dir = "../data/pre_generated/policy"
-    value_output_dir = "../data/pre_generated/value"
-    print("AAAAAAAAAAAA")
-    print(policy_data_train[0:10])
-    print("BBBBBBBBBBBB")
-    print(value_data_train[0:10])
+    policy_output_dir = "data/pre_generated/policy"
+    value_output_dir = "data/pre_generated/value"
     processor.export_data(policy_data_train, value_data_train, 
                           policy_data_dev, value_data_dev, 
                           policy_output_dir, value_output_dir)

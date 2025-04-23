@@ -14,7 +14,7 @@ class ValueRequest(BaseModel):
     questions_and_states: List[Tuple[str, str]]
 
 class ValueServer:
-    def __init__(self, value_model: str, host: str, port: int, endpoint: str):
+    def __init__(self, value_model: str, host: str, port: int, endpoint: str, revision: str=None):
         self.value_model = value_model
         self.host = host
         self.port = port
@@ -23,6 +23,7 @@ class ValueServer:
         self.app = FastAPI(title="Value Predictor API")
         self.setup_app()
         self.server_thread = None
+        self.revision = revision
         
     def setup_app(self):
         app = self.app
@@ -30,11 +31,14 @@ class ValueServer:
         @app.on_event("startup")
         async def startup():
             print("Loading value model...")
-            app.state.value_llm = LLM(model=self.value_model, tensor_parallel_size=1, disable_log_stats=True)
+            app.state.value_llm = LLM(
+                model=self.value_model,
+                tensor_parallel_size=1,
+                disable_log_stats=True,
+                revision=self.revision)
             print("Value model loaded.")
             
             # Set the value token ID for "1"
-            # Load tokenizer (should be safe on any device now)
             tokenizer = AutoTokenizer.from_pretrained(self.value_model)
             self.value_token_id = tokenizer.encode("1", add_special_tokens=False)[0]
             print(f"Value token ID for '1': {self.value_token_id}")
@@ -88,15 +92,16 @@ class ValueServer:
     def start(self):
         """Start the server in a background thread"""
         self.server_thread = threading.Thread(
-            target=lambda: uvicorn.run(self.app, host=self.host, port=self.port)
+            target=lambda: uvicorn.run(self.app, host=self.host, port=self.port, log_level="warning")
         )
         self.server_thread.daemon = True
         self.server_thread.start()
         print(f"Server started: http://{self.host}:{self.port}")
         
     def stop(self):
-        """Server terminates when main program exits"""
+        """Server terminates when main program exits (no explicit action needed)"""
         pass
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -106,11 +111,12 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", required=True, help="API endpoint path")
     args = parser.parse_args()
     
-    server = ValueServer(
+    temp_server_instance = ValueServer(
         args.value_model, 
         args.host, 
         args.port, 
         args.endpoint
     )
+
     print(f"Starting server at http://{args.host}:{args.port}")
-    uvicorn.run(server.app, host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(temp_server_instance.app, host=args.host, port=args.port, log_level="warning")
