@@ -39,13 +39,11 @@ class MCTSTree_Generate(MCTSTree):
                                     self.policy_training_data.append((self.question, child.state))
                             else:
                                 self.non_terminal_leaves.append(child)
-                    self.expansion_count += 1
+                        self.expansion_count += 1
                 except Exception as e:
                     print(f"Expansion error at state '{current.state}': {e}")
                     break # Exit loop on expansion error
             await asyncio.sleep(0)
-        print(self.policy_training_data)
-        print(self.value_training_data)
         return self.policy_training_data, self.value_training_data
 
 class MCTSForest_Generate(MCTSForest):

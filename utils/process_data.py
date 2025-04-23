@@ -118,10 +118,6 @@ class TrajectoryProcessor:
         policy_data_dev = self.process_policy_trajectory(policy_data_dev)
         value_data_dev = self.process_value_trajectory(value_data_dev)
         
-        # Create Hugging Face datasets from the processed data
-        policy_output_dir = os.path.join(os.path.dirname(policy_output_dir), "policy")
-        value_output_dir = os.path.join(os.path.dirname(value_output_dir), "value")
-        
         self._prepare_dataset(policy_data_train, policy_data_dev, policy_output_dir)
         self._prepare_dataset(value_data_train, value_data_dev, value_output_dir)
         

@@ -38,12 +38,13 @@ class MCTSTree_Evaluate(MCTSTree):
             else:
                 try:
                     new_states = await self.get_action_values(current)
-                    self.non_terminal_leaves.remove(current)
-                    current.add_children(new_states)
-                    for child in current.children:
-                        if not child.is_terminal:
-                            self.non_terminal_leaves.append(child)
-                    self.expansion_count += 1
+                    if len(new_states) > 0:
+                        self.non_terminal_leaves.remove(current)
+                        current.add_children(new_states)
+                        for child in current.children:
+                            if not child.is_terminal:
+                                self.non_terminal_leaves.append(child)
+                        self.expansion_count += 1
                 except Exception as e:
                     print(f"Expansion error: {e}")
                     break
@@ -132,7 +133,7 @@ class RunMCTS_Evaluate(RunMCTS):
         """Export evaluation results and configuration as a YAML file."""
         try:
             self.config['accuracy'] = accuracy
-            filepath = f"{self.config['export_data_path']}{self.config['iteration']}.yaml"
+            filepath = f"{self.config['export_data_path']}.yaml"
             
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(filepath), exist_ok=True)

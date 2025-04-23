@@ -108,13 +108,13 @@ class LossPlotCallback(TrainerCallback):
         plt.pause(0.1)
         
         # Save the plot on each update to current working directory
-        plot_path = "./loss_plot.png"
+        plot_path = "./loss_plot_policy.png"
         plt.savefig(plot_path)
         
     def on_train_end(self, args, state, control, **kwargs):
         # Save the final plot
         os.makedirs(self.output_dir, exist_ok=True)
-        plot_path = os.path.join(self.output_dir, "loss_plot.png")
+        plot_path = os.path.join(self.output_dir, "loss_plot_policy.png")
         plt.savefig(plot_path)
         plt.close(self.fig)
         print(f"Loss plot saved to {plot_path}")
@@ -151,8 +151,8 @@ class PolicyTrainer:
         return SFTConfig(
             output_dir=self.temp_dir,
 
-            per_device_train_batch_size=64,
-            num_train_epochs=3,
+            per_device_train_batch_size=16,
+            num_train_epochs=1,
             gradient_accumulation_steps=int(self.config["accumulation_steps"]),
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
@@ -193,7 +193,7 @@ class PolicyTrainer:
         trainer = PolicySFTTrainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
-            eval_dataset=dataset["dev"].select(range(3000)).shuffle(seed=42),
+            eval_dataset=dataset["dev"].select(range(min(3000, len(dataset["dev"])))).shuffle(seed=42),
             args=self._create_trainer_config(),
             callbacks=[EpochProgressBar(), loss_scaling_callback, loss_plot_callback]
         )

@@ -3,7 +3,7 @@ import time
 import signal
 import sys
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"  # Skip GPU 0, make GPUs 1-7 available if they exist
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Skip GPU 0, make GPUs 1-7 available if they exist
 
 # Handle graceful shutdown with Ctrl+C
 def signal_handler(sig, frame):
@@ -13,11 +13,11 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 policy_server = PolicyServer(
-    policy_model="AngelRaychev/policy_iteration_1",
+    policy_model="AngelRaychev/0.5B-policy-iteration_1",
     host="0.0.0.0",
     port=8032,
-    endpoint="/policy-prediction",
-    revision="efc7fd7e4146eebddf3f298a6b99c2cb07f254ce")
+    endpoint="/policy-prediction",)
+#    revision="5d9ff93fed23a4189948cb7a6e1c1ea40c43e865")
 
 # Start the server in background thread
 policy_server.start()

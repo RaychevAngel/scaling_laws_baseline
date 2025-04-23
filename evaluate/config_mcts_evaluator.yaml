@@ -4,25 +4,21 @@ policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
 value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
 # Model configuration
-policy_model: "AngelRaychev/policy_iteration_"  # Base name for policy model
-value_model: "AngelRaychev/value_iteration_"    # Base name for value model
+policy_model: "AngelRaychev/0.5B-policy-iteration_"  # Base name for policy model
+value_model: "AngelRaychev/0.5B-value-iteration_"    # Base name for value model
 
 # MCTS parameters
 branch_factor: 3
 max_expansions: 20
-temperature: 1
+temperature: 0.5
 c_explore: 0.3
-batch_size: 200
+batch_size: 100
 
 # Evaluation configuration
-max_iterations: 10
-stats_interval: 20
+stats_interval: 30
 delta: 0.1
-epsilon: 0.02
+epsilon: 0.05
 
 # Data paths
 test_questions_path: "questions/test.txt"
 export_data_path: "results/evaluation_iteration_"
-
-# Runtime configuration
-stats_interval: 20 

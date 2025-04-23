@@ -121,15 +121,9 @@ class DataGenerator:
             traceback.print_exc()
         finally:
             print("--- Stopping Servers ---")
-            def stop_process(process, name):
-                if process:
-                    process.kill()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        print(f"Warning: {name} server did not terminate quickly")
-                    except Exception as e:
-                        print(f"Error during {name} server shutdown: {e}")
-                
-            stop_process(self.policy_process, "policy")
-            stop_process(self.value_process, "value")
+            # Forcefully kill any remaining server processes
+            try:
+                subprocess.run(["pkill", "-9", "-f", "deploy_policy.py"])
+                subprocess.run(["pkill", "-9", "-f", "deploy_value.py"])
+            except Exception as e:
+                print(f"Error during forceful process cleanup: {e}")
