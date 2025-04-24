@@ -1,5 +1,5 @@
 # Server configuration
-host: "0.0.0.0"
+host: "127.0.0.1"
 policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
 value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
@@ -12,13 +12,13 @@ branch_factor: 3
 max_expansions: 20
 temperature: 0.5
 c_explore: 0.3
-batch_size: 100
+batch_size: 1
 
 # Evaluation configuration
 stats_interval: 30
 delta: 0.1
-epsilon: 0.05
+epsilon: 0.02
 
 # Data paths
 test_questions_path: "questions/test.txt"
-export_data_path: "results/evaluation_iteration_"
+export_data_path: "evaluate/results/evaluation_iteration_"

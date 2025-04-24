@@ -23,8 +23,8 @@ train_questions_path: "questions/train.txt"
 dev_questions_path: "questions/dev.txt"
 
 # Output paths for generated data
-policy_data_path: "data/mcts_generated/policy/iteration_"
-value_data_path: "data/mcts_generated/value/iteration_"
+policy_data_path: "data/policy/iteration_"
+value_data_path: "data/value/iteration_"
 
 # Runtime configuration
 stats_interval: 30 

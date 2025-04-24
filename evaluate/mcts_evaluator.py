@@ -4,13 +4,14 @@ import math
 from utils.mcts_base import MCTSTree, MCTSForest, RunMCTS
 import yaml
 import os
+from datetime import datetime
 
 class MCTSTree_Evaluate(MCTSTree):
     """MCTS tree implementation for evaluation."""
     
     def __init__(self, question: str, max_expansions: int, c_explore: float, request_queue):
         super().__init__(question, max_expansions, c_explore, request_queue)
-
+        
     def evaluate_tree(self) -> int:
         """Track the favourite trajectory through the tree and record result."""
         current = self.root
@@ -44,6 +45,8 @@ class MCTSTree_Evaluate(MCTSTree):
                         for child in current.children:
                             if not child.is_terminal:
                                 self.non_terminal_leaves.append(child)
+                            else:
+                                print(f"Question: {self.question}\nTerminal node:\n{child.state}Terminal node value: {child.evaluate_terminal_state(self.question)}\n")
                         self.expansion_count += 1
                 except Exception as e:
                     print(f"Expansion error: {e}")
@@ -132,16 +135,24 @@ class RunMCTS_Evaluate(RunMCTS):
     def export_evaluation_results(self, accuracy: float) -> None:
         """Export evaluation results and configuration as a YAML file."""
         try:
-            self.config['accuracy'] = accuracy
             filepath = f"{self.config['export_data_path']}.yaml"
-            
-            # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            result = {**self.config, 'accuracy': accuracy, 
+                     'timestamp': datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}
             
+            existing_data = []
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r') as f:
+                        content = yaml.safe_load(f)
+                        if content:
+                            existing_data = content if isinstance(content, list) else [content]
+                except Exception:
+                    pass
+                    
             with open(filepath, 'w') as f:
-                yaml.dump(self.config, f, default_flow_style=False)
-                
-            print(f"Results and configuration saved to {filepath}")
+                yaml.dump(existing_data + [result], f, default_flow_style=False)
+            print(f"Results saved to {filepath}")
         except Exception as e:
             print(f"Error exporting results: {e}")
             import traceback

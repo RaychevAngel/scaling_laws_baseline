@@ -2,25 +2,18 @@
 model_name: AngelRaychev/0.5B-value-iteration_
 device: cuda
 hub_model_id: AngelRaychev/0.5B-value-iteration_
-dataset_file: data/mcts_generated/value/iteration_ ###########
+dataset_file: data/value/iteration_
+plot_path: train/logs/value-iteration_
 
 # Optimization parameters
 learning_rate: 5e-5
+per_device_train_batch_size: 16
+num_train_epochs: 3
 lr_scheduler_type: "constant"
 optimizer: "adamw_torch"
 accumulation_steps: 1
 max_grad_norm: 1.0
 
-# Custom learning rate scheduler parameters
-lr_scheduler_factor: 0.5
-lr_scheduler_patience: 1
-lr_scheduler_threshold: 0.001
-
-# Regularization parameters
-weight_decay: 0.01
-
 # Convergence criteria
 logging_steps: 10
 eval_steps: 50
-patience: 1000
-improvement_tolerance: 0.001

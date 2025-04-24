@@ -35,7 +35,7 @@ class MCTSNode:
         try:
             # Extract target and numbers from question
             question_text = question.strip()
-            target_match = re.search(r'make (\d+)', question_text)
+            target_match = re.search(r'make (-?\d+)', question_text)
             numbers_match = re.search(r'Use ([\d, ]+) to make', question_text)
             if not target_match or not numbers_match:
                 return 0.0
@@ -45,7 +45,7 @@ class MCTSNode:
             
             last_line = self.state.split('\n')[3].removeprefix("The answer is: ").removesuffix(".")
             
-            equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(\d+)', last_line)
+            equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(-?\d+)', last_line)
             if not equation_match:
                 return 0.0
             

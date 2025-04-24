@@ -1,4 +1,4 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback, TrainerCallback
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from datasets import load_from_disk
 from trl import SFTConfig, SFTTrainer
 import tempfile, shutil, torch
@@ -59,8 +59,8 @@ class EpochProgressBar(TrainerCallback):
 
 class LossPlotCallback(TrainerCallback):
     """Callback to plot training and evaluation loss during training."""
-    def __init__(self, output_dir="./"):
-        self.output_dir = output_dir
+    def __init__(self, plot_path: str):
+        self.plot_path = plot_path
         self.train_losses = []
         self.eval_losses = []
         self.train_steps = []
@@ -100,24 +100,23 @@ class LossPlotCallback(TrainerCallback):
         self.ax.grid(True)
         
         # Use logarithmic scale if values vary widely
-        if self.train_losses and max(self.train_losses) / min(self.train_losses) > 10:
+        if self.train_losses and min(self.train_losses) > 0 and max(self.train_losses) / min(self.train_losses) > 10:
             self.ax.set_yscale('log')
             
         plt.tight_layout()
         plt.draw()
         plt.pause(0.1)
         
-        # Save the plot on each update to current working directory
-        plot_path = "./loss_plot_policy.png"
-        plt.savefig(plot_path)
+        # Save the plot on each update
+        os.makedirs(os.path.dirname(self.plot_path), exist_ok=True)
+        plt.savefig(self.plot_path)
         
     def on_train_end(self, args, state, control, **kwargs):
         # Save the final plot
-        os.makedirs(self.output_dir, exist_ok=True)
-        plot_path = os.path.join(self.output_dir, "loss_plot_policy.png")
-        plt.savefig(plot_path)
+        os.makedirs(os.path.dirname(self.plot_path), exist_ok=True)
+        plt.savefig(self.plot_path)
         plt.close(self.fig)
-        print(f"Loss plot saved to {plot_path}")
+        print(f"Loss plot saved to {self.plot_path}")
 
 class PolicySFTTrainer(SFTTrainer):
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
@@ -139,27 +138,17 @@ class PolicyTrainer:
         self.tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
         self.temp_dir = tempfile.mkdtemp()
     
-    def _create_trainer_config(self):
-        lr_scheduler_kwargs = {}
-        if self.config["lr_scheduler_type"] == "reduce_lr_on_plateau":
-            lr_scheduler_kwargs = {
-                "factor": float(self.config["lr_scheduler_factor"]),
-                "patience": int(self.config["lr_scheduler_patience"]),
-                "threshold": float(self.config["lr_scheduler_threshold"]),
-            }
-            
+    def _create_trainer_config(self):            
         return SFTConfig(
             output_dir=self.temp_dir,
 
-            per_device_train_batch_size=16,
-            num_train_epochs=1,
+            per_device_train_batch_size=int(self.config["per_device_train_batch_size"]),
+            num_train_epochs=int(self.config["num_train_epochs"]),
             gradient_accumulation_steps=int(self.config["accumulation_steps"]),
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
-            lr_scheduler_kwargs=lr_scheduler_kwargs,
             optim=self.config["optimizer"],
             max_grad_norm=float(self.config["max_grad_norm"]),
-            weight_decay=float(self.config["weight_decay"]),
             
             logging_strategy="steps",
             logging_steps=int(self.config["logging_steps"]),
@@ -182,13 +171,8 @@ class PolicyTrainer:
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
 
-        #early_stopping_callback = EarlyStoppingCallback(
-        #    early_stopping_patience=int(self.config["patience"]),
-        #    early_stopping_threshold=float(self.config["improvement_tolerance"])
-        #)
-
         loss_scaling_callback = LossScalingCallback()
-        loss_plot_callback = LossPlotCallback(output_dir=self.temp_dir)
+        loss_plot_callback = LossPlotCallback(self.config["plot_path"])
 
         trainer = PolicySFTTrainer(
             model=self.model,

@@ -36,7 +36,7 @@ def remove_unnecessary_parentheses(expr: str) -> str:
         expr_list.pop(i)
     return ''.join(expr_list)
 
-def process_calculation(numbers, operations, pattern):
+def process_calculation(numbers, operations, pattern, min_value = 1, max_value = 999):
     """Calculate a math problem with given numbers, operations, and pattern.
     
     Args:
@@ -56,9 +56,9 @@ def process_calculation(numbers, operations, pattern):
                 eval(f"(({numbers[0]}{operations[0]}{numbers[1]}){operations[1]}{numbers[2]}){operations[2]}{numbers[3]}")
             ]
             solution = [
-                f"{numbers[0]}{operations[0]}{numbers[1]}={results[0]} (left: {', '.join(map(str, sorted([results[0], numbers[2], numbers[3]])))})\n",
-                f"{results[0]}{operations[1]}{numbers[2]}={results[1]} (left: {', '.join(map(str, sorted([results[1], numbers[3]])))})\n",
-                f"{results[1]}{operations[2]}{numbers[3]}={results[2]} (left: {results[2]})\n"
+                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} (left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))})\n",
+                f"{int(results[0])}{operations[1]}{numbers[2]}={int(results[1])} (left: {', '.join(map(str, sorted([int(results[1]), numbers[3]])))})\n",
+                f"{int(results[1])}{operations[2]}{numbers[3]}={int(results[2])} (left: {int(results[2])})\n"
             ]
             expr = f"(({numbers[0]}{operations[0]}{numbers[1]}){operations[1]}{numbers[2]}){operations[2]}{numbers[3]}"
         else:  # (a op1 b) op3 (c op2 d)
@@ -68,20 +68,22 @@ def process_calculation(numbers, operations, pattern):
                 eval(f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})")
             ]
             solution = [
-                f"{numbers[0]}{operations[0]}{numbers[1]}={results[0]} (left: {', '.join(map(str, sorted([results[0], numbers[2], numbers[3]])))})\n",
-                f"{numbers[2]}{operations[1]}{numbers[3]}={results[1]} (left: {', '.join(map(str, sorted([results[0], results[1]])))})\n",
-                f"{results[0]}{operations[2]}{results[1]}={results[2]} (left: {results[2]})\n"
+                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} (left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))})\n",
+                f"{numbers[2]}{operations[1]}{numbers[3]}={int(results[1])} (left: {', '.join(map(str, sorted([int(results[0]), int(results[1])])))})\n",
+                f"{int(results[0])}{operations[2]}{int(results[1])}={int(results[2])} (left: {int(results[2])})\n"
             ]
             expr = f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})"
         
-        # Only return if result is an integer
-        if float(results[2]).is_integer():
+        # Check that:
+        # 1. All intermediate results are positive integers
+        # 2. Final result is an integer between 1 and 999
+        if all(isinstance(r, (int, float)) and float(r).is_integer() and r > 0 for r in results) and min_value <= results[2] <= max_value:
             return {
                 'numbers': numbers,
-                'target': results[2],
-                'question': f"Use {', '.join(map(str, sorted(numbers)))} to make {results[2]}.",
+                'target': int(results[2]),
+                'question': f"Use {', '.join(map(str, sorted(numbers)))} to make {int(results[2])}.",
                 'solution': ''.join(solution),
-                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}= {results[2]}.\n"
+                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}= {int(results[2])}.\n"
             }
         return None
     except:
@@ -92,31 +94,33 @@ def generate_random_negative_example(problem):
     numbers = problem['numbers']
     target = problem['target']
     
-    while True:
+    max_attempts = 10  # Limit number of attempts to avoid infinite loops
+    for _ in range(max_attempts):
         random_ops = random.sample(["+", "-", "*", "/"], 3)
         random_pattern = random.choice([1, 2])
         random_result = process_calculation(numbers, random_ops, random_pattern)
         
         if random_result and abs(random_result['target'] - target) > 0.001:
             return (problem['question'], random_result['solution'] + random_result['answer'], 0.0)
-        
+    return None
+
 def save_questions(train_questions, dev_questions, test_questions):
     """Save questions to files."""
     # Create questions directory if it doesn't exist
-    os.makedirs("../questions", exist_ok=True)
+    os.makedirs("questions", exist_ok=True)
     
-    with open("../questions/train.txt", "w") as f:
+    with open("questions/train.txt", "w") as f:
         f.write("\n".join(train_questions))
-    with open("../questions/dev.txt", "w") as f:
+    with open("questions/dev.txt", "w") as f:
         f.write("\n".join(dev_questions))
-    with open("../questions/test.txt", "w") as f:
+    with open("questions/test.txt", "w") as f:
         f.write("\n".join(test_questions))
 
 def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
     """Export the generated data using the processor."""
     processor = TrajectoryProcessor()
-    policy_output_dir = "data/pre_generated/policy"
-    value_output_dir = "data/pre_generated/value"
+    policy_output_dir = "data/policy/iteration_0"
+    value_output_dir = "data/value/iteration_0"
     processor.export_data(policy_data_train, value_data_train, 
                           policy_data_dev, value_data_dev, 
                           policy_output_dir, value_output_dir)
@@ -205,6 +209,6 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     print("Dataset creation completed successfully!")
 
 if __name__ == "__main__":
-    create_dataset(range_start=1, range_end=10, operations=["+", "-", "*", "/"])
+    create_dataset(range_start=1, range_end=12, operations=["+", "-", "*", "/"])
 
 
