@@ -194,15 +194,9 @@ class PolicyTrainer:
             metric_for_best_model="eval_loss",
             load_best_model_at_end=True,
             
-            # Performance optimizations for 8x A100s
-            fp16=False,                      # Use bf16 instead for A100s
-            bf16=True,                       # A100s have native bfloat16 support
-            dataloader_num_workers=8,        # More workers for A100 throughput
-            #group_by_length=True,            # Group similar length sequences for efficiency
-            gradient_checkpointing=True,     # Trade compute for memory savings
-            ddp_find_unused_parameters=False,# Faster DDP
-            ddp_bucket_cap_mb=250,           # Larger bucket size for faster multi-GPU
-            tf32=True,                       # Enable TF32 precision (A100-specific)
+            bf16=True,
+            dataloader_num_workers=32,
+            ddp_find_unused_parameters=False,
             
             push_to_hub=True,
             hub_model_id=self.config["hub_model_id"],
