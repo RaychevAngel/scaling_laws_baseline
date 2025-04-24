@@ -1,10 +1,10 @@
 import yaml
 import asyncio
+import os
 from train.train_policy import PolicyTrainer
 from train.train_value import ValueTrainer
 from generate_data.generate_data import DataGenerator
 from evaluate.evaluate import Evaluator
-import os
 
 
 async def main(num_iterations, policy_gpu_eval, value_gpu_eval,

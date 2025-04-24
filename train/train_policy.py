@@ -1,7 +1,4 @@
 import os
-# Set TOKENIZERS_PARALLELISM to avoid fork warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from datasets import load_from_disk
 from trl import SFTConfig, SFTTrainer
@@ -9,14 +6,13 @@ import tempfile, shutil, torch
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-
+# ─────────────────────────── Callbacks ──────────────────────────── #
 class LossScalingCallback(TrainerCallback):
-    """Callback to correctly scale the loss when using gradient accumulation."""
     def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is not None and "loss" in logs:
-            # Scale only the training loss by dividing by the number of accumulation steps
-            logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
+        if logs and "loss" in logs:
+            logs["loss"] /= args.gradient_accumulation_steps
 
 class EpochProgressBar(TrainerCallback):
     def __init__(self):
@@ -123,6 +119,8 @@ class LossPlotCallback(TrainerCallback):
         plt.close(self.fig)
         print(f"Loss plot saved to {self.plot_path}")
 
+
+# ─────────────────────────── Model wrapper ───────────────────────── #
 class PolicySFTTrainer(SFTTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -138,6 +136,8 @@ class PolicySFTTrainer(SFTTrainer):
             loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
         return (loss, None, None) if prediction_loss_only else (loss, outputs.logits, inputs.get("labels"))
 
+
+# ─────────────────────────── Trainer class ───────────────────────── #
 class PolicyTrainer:
     def __init__(self, config):
         # Apply speed optimizations for A100 GPUs
@@ -150,7 +150,6 @@ class PolicyTrainer:
             revision=config["revision"] if config["revision"] != "None" else None,
             ignore_mismatched_sizes=True,
             torch_dtype=torch.bfloat16,
-            use_cache=False,  # Required for gradient checkpointing
             device_map="auto"  # Use device_map instead of manual to(device)
         )
         
@@ -167,19 +166,14 @@ class PolicyTrainer:
         """Apply speed optimizations for A100 GPUs."""
         # Enable flash kernels
         torch.set_float32_matmul_precision("high")
-        
-        # Speed optimizations for A100 GPUs
-        torch.backends.cuda.matmul.allow_tf32 = True  # Enable TensorFloat32 (A100 specific)
         torch.backends.cudnn.benchmark = True         # Optimize CUDNN for fixed input sizes
-        torch.backends.cudnn.deterministic = False    # Allow non-deterministic algorithms if faster
-        os.environ["ACCELERATE_USE_FLASH_ATTENTION"] = "true"  # Enable Flash Attention 2
-        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # Consistent device ordering
     
     def _create_trainer_config(self):            
         return SFTConfig(
             output_dir=self.temp_dir,
 
             per_device_train_batch_size=int(self.config["per_device_train_batch_size"]),
+            per_device_eval_batch_size=int(self.config["per_device_eval_batch_size"]),
             num_train_epochs=int(self.config["num_train_epochs"]),
             gradient_accumulation_steps=int(self.config["gradient_accumulation_steps"]),
             learning_rate=float(self.config["learning_rate"]),
@@ -195,8 +189,7 @@ class PolicyTrainer:
             load_best_model_at_end=True,
             
             bf16=True,
-            dataloader_num_workers=32,
-            ddp_find_unused_parameters=False,
+            dataloader_num_workers=64,
             
             push_to_hub=True,
             hub_model_id=self.config["hub_model_id"],
@@ -222,8 +215,8 @@ class PolicyTrainer:
             callbacks=[EpochProgressBar(), loss_scaling_callback, loss_plot_callback]
         )
         
-        # Store dataset size for progress bar calculation
-        trainer.args.train_dataset_size = len(dataset["train"])
+        # Provide dataset size to progress bar callback
+        trainer.args.train_dataset_size = len(train_dataset)
         
         # Print training configuration
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")

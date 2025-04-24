@@ -8,22 +8,22 @@ import matplotlib.pyplot as plt
 
 # Load dataset and extract inputs/labels
 print("Loading data...")
-train_dataset = load_from_disk("data/value/iteration_0/train")
-inputs = [sample["prompt"][0]["content"] for sample in train_dataset]
-labels = np.array([sample["completion"][0]["content"] == "1" for sample in train_dataset], dtype=int)
+train_dataset = load_from_disk("data/value/iteration_0/train").shuffle(seed=42)
+inputs = [sample["text"] for sample in train_dataset]
+labels = np.array([sample["label"] for sample in train_dataset], dtype=int)
 class_balance = np.mean(labels)
 print(f"Loaded {len(inputs)} samples, class balance: {class_balance:.4f}")
 
 # Prepare API requests
-questions_and_states = [[parts[0], parts[1]] for parts in [inp.split('\n', 1) for inp in inputs]]
+questions_and_states = [[parts[0] + '\n', parts[1]] for parts in [inp.split('\n', 1) for inp in inputs]]
 
 # Make predictions
 print("Making predictions...")
 url = "http://127.0.0.1:8051/value-prediction"
-batch_size = 16
+batch_size = 512
 predictions = []
 
-for i in tqdm(range(0, len(questions_and_states), batch_size)):
+for i in tqdm(range(0, int(len(questions_and_states)/100.0), batch_size)):
     batch = questions_and_states[i:i+batch_size]
     try:
         response = requests.post(url, json={"questions_and_states": batch}, 
@@ -33,7 +33,11 @@ for i in tqdm(range(0, len(questions_and_states), batch_size)):
         print(f"Error in batch {i//batch_size}: {e}")
 
 predictions = np.array(predictions)
-
+for i in range(100):
+    print(predictions[i])
+    print(labels[i])
+    print(questions_and_states[i])
+    print()
 # Replace invalid values if any
 invalid_mask = np.isnan(predictions) | np.isinf(predictions)
 if np.any(invalid_mask):

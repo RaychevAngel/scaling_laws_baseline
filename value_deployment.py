@@ -15,7 +15,7 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 value_server = ValueServer(
-    value_model="AngelRaychev/0.5B-value-iteration_2",
+    value_model="AngelRaychev/0.5B-value-iteration_1",
     host="127.0.0.1",
     port=8051,
     endpoint="/value-prediction",)
