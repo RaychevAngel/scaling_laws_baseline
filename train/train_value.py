@@ -1,12 +1,30 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
-from datasets import load_from_disk
-from trl import SFTConfig, SFTTrainer
-import tempfile, shutil, torch
-from tqdm.auto import tqdm
+#!/usr/bin/env python3
+"""
+-----------------------------------
+Assumed dataset format (loaded from disk):
+
+{"text": "foo\nbar\nbaz",        "label": 1}
+{"text": "hello\nworld",         "label": 0}
+...
+--------------------------------------------------
+"""
+
+import tempfile
+import torch
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
+from datasets import load_from_disk
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    DataCollatorWithPadding,
+    Trainer,
+    TrainingArguments,
+    TrainerCallback
+)
 import os
-import numpy as np
+import matplotlib.pyplot as plt
+from tqdm.auto import tqdm
+
 
 class LossScalingCallback(TrainerCallback):
     """Callback to correctly scale the loss when using gradient accumulation."""
@@ -57,7 +75,6 @@ class EpochProgressBar(TrainerCallback):
     def on_evaluate(self, args, state, control, **kwargs):
         print(f"\nEvaluating at step {state.global_step} (epoch {state.epoch:.2f})")
 
-
 class LossPlotCallback(TrainerCallback):
     """Callback to plot training and evaluation loss during training."""
     def __init__(self, plot_path: str):
@@ -68,24 +85,27 @@ class LossPlotCallback(TrainerCallback):
         self.eval_steps = []
         self.fig, self.ax = plt.subplots(figsize=(10, 6))
         plt.ion()  # Turn on interactive mode
+        self.log_count = 0  # Counter for iterations
         
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs is None:
             return
+
+        if self.log_count > 3:
+            if "loss" in logs:
+                # Collect training loss data
+                loss = logs["loss"] 
+                self.train_losses.append(loss)
+                self.train_steps.append(state.global_step)
+                
+            if "eval_loss" in logs:
+                # Collect evaluation loss data
+                self.eval_losses.append(logs["eval_loss"])
+                self.eval_steps.append(state.global_step)
             
-        if "loss" in logs:
-            # Collect training loss data
-            loss = logs["loss"] 
-            self.train_losses.append(loss)
-            self.train_steps.append(state.global_step)
-            
-        if "eval_loss" in logs:
-            # Collect evaluation loss data
-            self.eval_losses.append(logs["eval_loss"])
-            self.eval_steps.append(state.global_step)
-            
-        # Update the plot
-        self._update_plot()
+        self.log_count += 1
+        self._update_plot() 
+        
         
     def _update_plot(self):
         self.ax.clear()
@@ -120,61 +140,113 @@ class LossPlotCallback(TrainerCallback):
         print(f"Loss plot saved to {self.plot_path}")
 
 
-class ValueSFTTrainer(SFTTrainer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
-    
-    def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
-        outputs = model(**inputs)
-        value_probs = F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id].view(-1, 1)
-        labels = []
-        for label_seq in inputs["labels"]:
-            non_masked_indices = (label_seq != -100).nonzero(as_tuple=True)[0]
-            non_masked_tokens = [label_seq[idx].item() for idx in non_masked_indices]
-            labels.append(1 if non_masked_tokens[-4] == self.value_token_id else 0)
-        loss = F.binary_cross_entropy(value_probs, torch.tensor(labels, dtype=torch.float32, device=value_probs.device).view(-1, 1))
-        return (loss, outputs) if return_outputs else loss
-    
-    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
-        inputs = self._prepare_inputs(inputs)
-        with torch.no_grad():
-            loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
-        if prediction_loss_only:
-            return (loss, None, None)
-        return (loss, F.softmax(outputs.logits[:, 0, :], dim=-1)[:, self.value_token_id], inputs.get("labels"))
+class ValueModel(torch.nn.Module):
+    """Wrap base LM with custom forward that returns BCE-with-logits loss."""
+
+    def __init__(self, model_name: str, revision: str, newline_id: int, value_token_id: int):
+        super().__init__()
+        self.newline_id = newline_id
+        self.value_token_id = value_token_id  # Token ID corresponding to string "1"
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            revision=revision,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            use_cache=False,  # Required for gradient checkpointing
+            ignore_mismatched_sizes=True  # Allow loading with mismatched parameter shapes
+        )
+        # Enable gradient checkpointing for memory efficiency
+        self.model.gradient_checkpointing_enable()
+
+    def forward(self, input_ids, labels=None):
+        logits = self.model(input_ids=input_ids).logits[..., self.value_token_id]
+        mask_prev_nl = (input_ids == self.newline_id)[:, :-1]
+        logits_sel = logits[:, :-1][mask_prev_nl]
+        
+        if logits_sel.numel() == 0:
+            return {"loss": logits.sum() * 0, "logits": logits_sel}
+            
+        labels_sel = labels.float().unsqueeze(1).expand_as(mask_prev_nl)[mask_prev_nl]
+        return {
+            "loss": F.binary_cross_entropy_with_logits(logits_sel, labels_sel, reduction="mean"), 
+            "logits": logits_sel
+        }
+
 
 class ValueTrainer:
+    """Trainer for the Value Model."""
+    
     def __init__(self, config):
+        # Apply speed optimizations for A100 GPUs
+        self._apply_speed_optimizations()
+        
         self.config = config
         self.device = config["device"]
-        self.model = AutoModelForCausalLM.from_pretrained(config["model_name"], ignore_mismatched_sizes=True).to(self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config["model_name"],
+            revision=config["revision"] if config["revision"] != "None" else None  # Handle None string properly
+        )
+        
+        self.newline_id = self.tokenizer.encode("\n", add_special_tokens=False)[0]
+        
+        # Get the token ID for "1" directly from the tokenizer
+        self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
+        print(f"Value token ID for '1': {self.value_token_id}")
+        
+        self.model = ValueModel(
+            config["model_name"], 
+            revision=config["revision"] if config["revision"] != "None" else None,
+            newline_id=self.newline_id, 
+            value_token_id=self.value_token_id,
+        )
+        
+        # Data collator
+        self.collator = DataCollatorWithPadding(self.tokenizer, pad_to_multiple_of=8)
         self.temp_dir = tempfile.mkdtemp()
     
-    def _create_trainer_config(self):
-        return SFTConfig(
+    def _apply_speed_optimizations(self):
+        """Apply speed optimizations that would normally be at the global level."""
+        # Enable flash kernels
+        torch.set_float32_matmul_precision("high")
+        
+        # Speed optimizations for A100 GPUs
+        torch.backends.cuda.matmul.allow_tf32 = True  # Enable TensorFloat32 (A100 specific)
+        torch.backends.cudnn.benchmark = True         # Optimize CUDNN for fixed input sizes
+        torch.backends.cudnn.deterministic = False    # Allow non-deterministic algorithms if faster
+        os.environ["ACCELERATE_USE_FLASH_ATTENTION"] = "true"  # Enable Flash Attention 2
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # Consistent device ordering
+    
+    def _create_training_args(self):
+        """Create TrainingArguments from config dictionary."""
+        return TrainingArguments(
             output_dir=self.temp_dir,
 
             per_device_train_batch_size=int(self.config["per_device_train_batch_size"]),
             num_train_epochs=int(self.config["num_train_epochs"]),
-            gradient_accumulation_steps=int(self.config["accumulation_steps"]),
+            gradient_accumulation_steps=int(self.config["gradient_accumulation_steps"]),
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
-            optim=self.config["optimizer"],
-            max_grad_norm=float(self.config["max_grad_norm"]),
 
-            logging_strategy="steps",
             logging_steps=int(self.config["logging_steps"]),
             logging_first_step=True,
             eval_strategy="steps",
             eval_steps=int(self.config["eval_steps"]),
-            save_strategy="steps",
             save_steps=int(self.config["eval_steps"]),
             save_total_limit=1,
             metric_for_best_model="eval_loss",
             load_best_model_at_end=True,
-
+            
+            # Performance optimizations for 8x A100s
+            fp16=False,                      # Use bf16 instead for A100s
+            bf16=True,                       # A100s have native bfloat16 support
+            dataloader_num_workers=8,        # More workers for A100 throughput
+            #group_by_length=True,            # Group similar length sequences for efficiency
+            gradient_checkpointing=True,     # Trade compute for memory savings
+            ddp_find_unused_parameters=False,# Faster DDP
+            ddp_bucket_cap_mb=250,           # Larger bucket size for faster multi-GPU
+            tf32=True,                       # Enable TF32 precision (A100-specific)
+            
             push_to_hub=True,
             hub_model_id=self.config["hub_model_id"],
             hub_strategy="end",
@@ -184,16 +256,17 @@ class ValueTrainer:
     
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
-
+        
         loss_scaling_callback = LossScalingCallback()
         loss_plot_callback = LossPlotCallback(self.config["plot_path"])
-        
-        trainer = ValueSFTTrainer(
+
+        trainer = Trainer(
             model=self.model,
             train_dataset=dataset["train"].shuffle(seed=42),
             eval_dataset=dataset["dev"].select(range(min(3000, len(dataset["dev"])))).shuffle(seed=42),
-            args=self._create_trainer_config(),
-            callbacks=[EpochProgressBar(), loss_scaling_callback, loss_plot_callback],
+            args=self._create_training_args(),
+            data_collator=self.collator,
+            callbacks=[EpochProgressBar(), loss_scaling_callback, loss_plot_callback]
         )
         
         # Store dataset size for progress bar calculation
@@ -207,13 +280,15 @@ class ValueTrainer:
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
         
-        # Train and push to hub
+        # Train model
         try:
             trainer.train()
         except KeyboardInterrupt:
             print("\nTraining interrupted. Saving and pushing current model to Hugging Face Hub...")
-            
-        print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
-        trainer.push_to_hub()
-        print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
-        shutil.rmtree(self.temp_dir)
+
+        # Push to hub if configured
+        if bool(self.config["push_to_hub"]) and self.config["hub_model_id"]:
+            trainer.push_to_hub()
+            print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
+
+        return trainer

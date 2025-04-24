@@ -51,7 +51,7 @@ class ValueServer:
                     raise HTTPException(status_code=500, detail="Model not initialized")
                 
                 # Get value predictions
-                texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
+                texts = [q+s for q, s in request.questions_and_states]
                 
                 values = self._predict_value(app.state.value_llm, texts)
                 

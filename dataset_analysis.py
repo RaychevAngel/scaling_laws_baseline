@@ -15,8 +15,8 @@ dev_dataset0 = load_from_disk("data/value/iteration_0/dev").shuffle(seed=42)
 
 
 for i in tqdm(range(100)):
-    print(train_dataset0[i]["prompt"][0]["content"])
-    print(train_dataset0[i]["completion"][0]["content"])
+    print(train_dataset0[i]["text"])
+    print(train_dataset0[i]["label"])
 
 train_count_0_negative = 0
 train_count_0_positive = 0

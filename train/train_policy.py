@@ -1,10 +1,13 @@
+import os
+# Set TOKENIZERS_PARALLELISM to avoid fork warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from datasets import load_from_disk
 from trl import SFTConfig, SFTTrainer
 import tempfile, shutil, torch
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
-import os
 import numpy as np
 
 
@@ -67,23 +70,25 @@ class LossPlotCallback(TrainerCallback):
         self.eval_steps = []
         self.fig, self.ax = plt.subplots(figsize=(10, 6))
         plt.ion()  # Turn on interactive mode
+        self.log_count = 0  # Counter for iterations
         
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs is None:
             return
-            
-        if "loss" in logs:
-            # Collect training loss data
-            loss = logs["loss"] 
-            self.train_losses.append(loss)
-            self.train_steps.append(state.global_step)
-            
-        if "eval_loss" in logs:
-            # Collect evaluation loss data
-            self.eval_losses.append(logs["eval_loss"])
-            self.eval_steps.append(state.global_step)
-            
-        # Update the plot
+        
+        if self.log_count > 3:
+            if "loss" in logs:
+                # Collect training loss data
+                loss = logs["loss"] 
+                self.train_losses.append(loss)
+                self.train_steps.append(state.global_step)
+                
+            if "eval_loss" in logs:
+                # Collect evaluation loss data
+                self.eval_losses.append(logs["eval_loss"])
+                self.eval_steps.append(state.global_step)
+        
+        self.log_count += 1
         self._update_plot()
         
     def _update_plot(self):
@@ -119,6 +124,9 @@ class LossPlotCallback(TrainerCallback):
         print(f"Loss plot saved to {self.plot_path}")
 
 class PolicySFTTrainer(SFTTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
     def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False):
         outputs = model(**inputs)
         loss = outputs.loss
@@ -132,11 +140,40 @@ class PolicySFTTrainer(SFTTrainer):
 
 class PolicyTrainer:
     def __init__(self, config):
+        # Apply speed optimizations for A100 GPUs
+        self._apply_speed_optimizations()
+        
         self.config = config
         self.device = config["device"]
-        self.model = AutoModelForCausalLM.from_pretrained(config["model_name"], ignore_mismatched_sizes=True).to(self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
+        self.model = AutoModelForCausalLM.from_pretrained(
+            config["model_name"], 
+            revision=config["revision"] if config["revision"] != "None" else None,
+            ignore_mismatched_sizes=True,
+            torch_dtype=torch.bfloat16,
+            use_cache=False,  # Required for gradient checkpointing
+            device_map="auto"  # Use device_map instead of manual to(device)
+        )
+        
+        # Enable gradient checkpointing for memory efficiency
+        self.model.gradient_checkpointing_enable()
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config["model_name"],
+            revision=config["revision"] if config["revision"] != "None" else None
+        )
         self.temp_dir = tempfile.mkdtemp()
+    
+    def _apply_speed_optimizations(self):
+        """Apply speed optimizations for A100 GPUs."""
+        # Enable flash kernels
+        torch.set_float32_matmul_precision("high")
+        
+        # Speed optimizations for A100 GPUs
+        torch.backends.cuda.matmul.allow_tf32 = True  # Enable TensorFloat32 (A100 specific)
+        torch.backends.cudnn.benchmark = True         # Optimize CUDNN for fixed input sizes
+        torch.backends.cudnn.deterministic = False    # Allow non-deterministic algorithms if faster
+        os.environ["ACCELERATE_USE_FLASH_ATTENTION"] = "true"  # Enable Flash Attention 2
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # Consistent device ordering
     
     def _create_trainer_config(self):            
         return SFTConfig(
@@ -144,22 +181,28 @@ class PolicyTrainer:
 
             per_device_train_batch_size=int(self.config["per_device_train_batch_size"]),
             num_train_epochs=int(self.config["num_train_epochs"]),
-            gradient_accumulation_steps=int(self.config["accumulation_steps"]),
+            gradient_accumulation_steps=int(self.config["gradient_accumulation_steps"]),
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
-            optim=self.config["optimizer"],
-            max_grad_norm=float(self.config["max_grad_norm"]),
             
-            logging_strategy="steps",
             logging_steps=int(self.config["logging_steps"]),
             logging_first_step=True,
             eval_strategy="steps",
             eval_steps=int(self.config["eval_steps"]),
-            save_strategy="steps",
             save_steps=int(self.config["eval_steps"]),
             save_total_limit=1,
             metric_for_best_model="eval_loss",
             load_best_model_at_end=True,
+            
+            # Performance optimizations for 8x A100s
+            fp16=False,                      # Use bf16 instead for A100s
+            bf16=True,                       # A100s have native bfloat16 support
+            dataloader_num_workers=8,        # More workers for A100 throughput
+            #group_by_length=True,            # Group similar length sequences for efficiency
+            gradient_checkpointing=True,     # Trade compute for memory savings
+            ddp_find_unused_parameters=False,# Faster DDP
+            ddp_bucket_cap_mb=250,           # Larger bucket size for faster multi-GPU
+            tf32=True,                       # Enable TF32 precision (A100-specific)
             
             push_to_hub=True,
             hub_model_id=self.config["hub_model_id"],
@@ -170,14 +213,17 @@ class PolicyTrainer:
     
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
+        train_dataset = dataset["train"].rename_columns({"input": "prompt", "output": "completion"})
+        dev_dataset = dataset["dev"].rename_columns({"input": "prompt", "output": "completion"})
+
 
         loss_scaling_callback = LossScalingCallback()
         loss_plot_callback = LossPlotCallback(self.config["plot_path"])
 
         trainer = PolicySFTTrainer(
             model=self.model,
-            train_dataset=dataset["train"].shuffle(seed=42),
-            eval_dataset=dataset["dev"].select(range(min(3000, len(dataset["dev"])))).shuffle(seed=42),
+            train_dataset=train_dataset.shuffle(seed=42),
+            eval_dataset=dev_dataset.select(range(min(3000, len(dev_dataset)))).shuffle(seed=42),
             args=self._create_trainer_config(),
             callbacks=[EpochProgressBar(), loss_scaling_callback, loss_plot_callback]
         )

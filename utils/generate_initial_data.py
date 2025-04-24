@@ -1,8 +1,8 @@
-from utils.process_data import TrajectoryProcessor
 import random
 from itertools import product
 import os
 from tqdm import tqdm
+from datasets import Dataset, DatasetDict
 
 # Set seed for reproducibility
 random.seed(42)
@@ -101,29 +101,28 @@ def generate_random_negative_example(problem):
         random_result = process_calculation(numbers, random_ops, random_pattern)
         
         if random_result and abs(random_result['target'] - target) > 0.001:
-            return (problem['question'], random_result['solution'] + random_result['answer'], 0.0)
+            return {
+                "text": problem['question'] + '\n' + random_result['solution'] + random_result['answer'],
+                "label": 0.0
+            }
     return None
 
 def save_questions(train_questions, dev_questions, test_questions):
     """Save questions to files."""
-    # Create questions directory if it doesn't exist
     os.makedirs("questions", exist_ok=True)
     
-    with open("questions/train.txt", "w") as f:
-        f.write("\n".join(train_questions))
-    with open("questions/dev.txt", "w") as f:
-        f.write("\n".join(dev_questions))
-    with open("questions/test.txt", "w") as f:
-        f.write("\n".join(test_questions))
+    for split, questions in [("train", train_questions), ("dev", dev_questions), ("test", test_questions)]:
+        with open(f"questions/{split}.txt", "w") as f:
+            f.write("\n".join(questions))
 
 def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
     """Export the generated data using the processor."""
-    processor = TrajectoryProcessor()
-    policy_output_dir = "data/policy/iteration_0"
-    value_output_dir = "data/value/iteration_0"
-    processor.export_data(policy_data_train, value_data_train, 
-                          policy_data_dev, value_data_dev, 
-                          policy_output_dir, value_output_dir)
+    for path, data_dict in [
+        ("data/policy/iteration_0", {"train": policy_data_train, "dev": policy_data_dev}),
+        ("data/value/iteration_0", {"train": value_data_train, "dev": value_data_dev})
+    ]:
+        os.makedirs(path, exist_ok=True)
+        DatasetDict({k: Dataset.from_list(v) for k, v in data_dict.items()}).save_to_disk(path)
 
 # --- Main dataset creation function ---
 def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
@@ -178,32 +177,31 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     print("Saving questions to files...")
     save_questions(train_questions, dev_questions, test_questions)
     
-    # 6. Create policy data (question, solution pairs)
-    train_policy_data = [(p['question'], p['solution'] + p['answer']) for p in train_problems]
-    dev_policy_data = [(p['question'], p['solution'] + p['answer']) for p in dev_problems]
+    # 6. Create policy and value data
+    print("Creating policy and value data...")
+    train_policy_data, train_value_data = [], []
+    for p in train_problems:
+        q, sa = p['question'] + '\n', p['solution'] + p['answer']
+        train_policy_data.append({"input": q, "output": sa})
+        train_value_data.append({"text": q + sa, "label": 1.0})
     
-    # 7. Create value data (positive examples with score 1.0)
-    train_value_data = [(q, s, 1.0) for q, s in train_policy_data]
-    dev_value_data = [(q, s, 1.0) for q, s in dev_policy_data]
+    dev_policy_data, dev_value_data = [], []
+    for p in dev_problems:
+        q, sa = p['question'] + '\n', p['solution'] + p['answer']
+        dev_policy_data.append({"input": q, "output": sa})
+        dev_value_data.append({"text": q + sa, "label": 1.0})
     
-    # 8. Add negative examples (incorrect solutions with score 0.0)
-    print("Generating negative examples for training data...")
-    with tqdm(total=len(train_problems), desc="Training negative examples") as pbar:
-        for problem in train_problems:
-            negative_example = generate_random_negative_example(problem)
-            if negative_example:
-                train_value_data.append(negative_example)
-            pbar.update(1)
+    # 7. Add negative examples (incorrect solutions with score 0.0)
+    print("Generating negative examples...")
+    for problems, value_data, desc in [(train_problems, train_value_data, "Training"), 
+                                      (dev_problems, dev_value_data, "Dev")]:
+        with tqdm(total=len(problems), desc=f"{desc} negative examples") as pbar:
+            for problem in problems:
+                if neg_ex := generate_random_negative_example(problem):
+                    value_data.append(neg_ex)
+                pbar.update(1)
     
-    print("Generating negative examples for dev data...")
-    with tqdm(total=len(dev_problems), desc="Dev negative examples") as pbar:
-        for problem in dev_problems:
-            negative_example = generate_random_negative_example(problem)
-            if negative_example:
-                dev_value_data.append(negative_example)
-            pbar.update(1)
-    
-    # 9. Export all data
+    # 8. Export all data
     print("Exporting data to files...")
     export_data(train_policy_data, train_value_data, dev_policy_data, dev_value_data)
     print("Dataset creation completed successfully!")

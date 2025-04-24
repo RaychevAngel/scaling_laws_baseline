@@ -48,7 +48,7 @@ class PolicyServer:
                 raise HTTPException(status_code=500, detail="Model not initialized")
             
             # Get policy predictions
-            texts = [f"{q}\n{s}" for q, s in request.questions_and_states]
+            texts = [q+s for q, s in request.questions_and_states]
             policy_response = self._predict_policy(
                 app.state.policy_llm, 
                 texts, 

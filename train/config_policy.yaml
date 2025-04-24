@@ -1,20 +1,19 @@
 # Model and dataset configuration
 model_name: AngelRaychev/0.5B-policy-iteration_
-device: cuda
+revision: None
 hub_model_id: AngelRaychev/0.5B-policy-iteration_
 dataset_file: data/policy/iteration_
 plot_path: train/logs/policy-iteration_
+device: cuda
 
 # Optimization parameters
-learning_rate: 5e-5
-per_device_train_batch_size: 16
+learning_rate: 1e-5
+per_device_train_batch_size: 32
 num_train_epochs: 3
 lr_scheduler_type: "constant"
-optimizer: "adamw_torch"
-accumulation_steps: 1
-max_grad_norm: 1.0
+gradient_accumulation_steps: 1
 
 # Convergence criteria
 logging_steps: 10
-eval_steps: 150
+eval_steps: 300
 

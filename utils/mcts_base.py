@@ -223,7 +223,7 @@ class RunMCTS:
     def _read_questions(self, path: str) -> List[str]:
         """Read questions from a file"""
         with open(path, 'r') as f:
-            return [line.strip() for line in f]
+            return [line.strip() + '\n' for line in f]
             
     def _print_collection_stats(self) -> None:
         """Print current data collection and processing progress"""

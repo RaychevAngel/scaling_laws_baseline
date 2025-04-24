@@ -2,7 +2,8 @@ from typing import List, Dict, Tuple, Callable
 import random
 import asyncio
 from utils.mcts_base import MCTSTree, MCTSForest, RunMCTS
-from utils.process_data import TrajectoryProcessor
+from datasets import Dataset, DatasetDict
+import os
 
 class MCTSTree_Generate(MCTSTree):
     """MCTS tree implementation for training."""
@@ -19,8 +20,7 @@ class MCTSTree_Generate(MCTSTree):
             if current.has_children:
                 current = self.select_child(current)
             elif current.is_terminal:
-                label = current.evaluate_terminal_state(self.question)
-                self.backpropagate(current, label)
+                self.backpropagate(current, current.evaluate_terminal_state(self.question))
                 current = self.root
             elif not current.is_visited:
                 self.backpropagate(current, current.value_estimate)
@@ -28,21 +28,21 @@ class MCTSTree_Generate(MCTSTree):
             else:
                 try:
                     new_states = await self.get_action_values(current)
-                    if len(new_states) > 0:
+                    if new_states:
                         self.non_terminal_leaves.remove(current)
                         current.add_children(new_states)
                         for child in current.children:
                             if child.is_terminal:
                                 label = child.evaluate_terminal_state(self.question)
-                                self.value_training_data.append((self.question, child.state, label))
+                                self.value_training_data.append({"text": self.question + child.state, "label": label})
                                 if label:
-                                    self.policy_training_data.append((self.question, child.state))
+                                    self.policy_training_data.append({"input": self.question, "output": child.state})
                             else:
                                 self.non_terminal_leaves.append(child)
                         self.expansion_count += 1
                 except Exception as e:
                     print(f"Expansion error at state '{current.state}': {e}")
-                    break # Exit loop on expansion error
+                    break
             await asyncio.sleep(0)
         return self.policy_training_data, self.value_training_data
 
@@ -55,20 +55,13 @@ class MCTSForest_Generate(MCTSForest):
                  batch_size: int):
         super().__init__(questions, max_expansions, num_trees, c_explore, 
                         batch_size, policy_value_fn)
-        
-        # Initialize data collection
-        self.policy_training_data = []
-        self.value_training_data = []
+        self.policy_training_data, self.value_training_data = [], []
         self.target_examples = target_examples
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree for training."""
-        return MCTSTree_Generate(
-            question=question,
-            max_expansions=self.max_expansions,
-            c_explore=self.c_explore,
-            request_queue=self.request_queue
-        )
+        return MCTSTree_Generate(question=question, max_expansions=self.max_expansions,
+                               c_explore=self.c_explore, request_queue=self.request_queue)
         
     def _should_stop_collection(self) -> bool:
         """Stop when we've collected enough examples"""
@@ -90,9 +83,6 @@ class RunMCTS_Generate(RunMCTS):
     
     def __init__(self, config: Dict, policy_value_fn: Callable):
         super().__init__(config, policy_value_fn)
-        self.trajectory_processor = TrajectoryProcessor()
-        
-        # Load questions and initialize forests
         self.questions_train, self.questions_val = self._load_questions()
         self.forest_train, self.forest_val = self._initialize_forest()
 
@@ -104,9 +94,10 @@ class RunMCTS_Generate(RunMCTS):
     def _load_questions(self) -> Tuple[List[str], List[str]]:
         """Load questions from configured file."""
         try:
-            train_questions = self._read_questions(self.config['train_questions_path'])
-            val_questions = self._read_questions(self.config['dev_questions_path'])
-            return train_questions, val_questions
+            return (
+                self._read_questions(self.config['train_questions_path']),
+                self._read_questions(self.config['dev_questions_path'])
+            )
         except FileNotFoundError as e:
             print(f"Error loading questions: {e}")
             return [], []
@@ -122,19 +113,10 @@ class RunMCTS_Generate(RunMCTS):
             'num_trees': 2 * self.config['batch_size'],
         }
         
-        forest_train = MCTSForest_Generate(
-            questions=self.questions_train,
-            target_examples=self.config['target_examples_train'],
-            **common_params
+        return (
+            MCTSForest_Generate(questions=self.questions_train, target_examples=self.config['target_examples_train'], **common_params),
+            MCTSForest_Generate(questions=self.questions_val, target_examples=self.config['target_examples_dev'], **common_params)
         )
-        
-        forest_val = MCTSForest_Generate(
-            questions=self.questions_val,
-            target_examples=self.config['target_examples_dev'],
-            **common_params
-        )
-        
-        return forest_train, forest_val
     
     def _print_collection_stats(self) -> None:
         """Print current data collection and processing progress."""
@@ -144,12 +126,21 @@ class RunMCTS_Generate(RunMCTS):
 
     def export_training_data(self, train_data: Tuple[List, List], val_data: Tuple[List, List]) -> None:
         """Export processed policy and value training data to files."""
-        self.trajectory_processor.export_data(*train_data, *val_data, self.config['policy_data_path'], self.config['value_data_path'])
+        policy_train, value_train = train_data
+        policy_val, value_val = val_data
+        
+        # Create directories and save datasets
+        for path, data_dict in [
+            (self.config['policy_data_path'], {"train": policy_train, "dev": policy_val}),
+            (self.config['value_data_path'], {"train": value_train, "dev": value_val})
+        ]:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            DatasetDict({k: Dataset.from_list(v) for k, v in data_dict.items()}).save_to_disk(path)
 
     async def _run_implementation(self):
         """Run the MCTS forest."""
         train_data = await self.forest_train.run_forest()
         val_data = await self.forest_val.run_forest()
         self.export_training_data(train_data, val_data)
-        print("Total API calls: ", self.total_api_calls)
+        print(f"Total API calls: {self.total_api_calls}")
         return train_data, val_data 
