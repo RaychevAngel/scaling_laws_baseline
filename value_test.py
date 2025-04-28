@@ -6,106 +6,15 @@ from datasets import load_from_disk
 from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
 import matplotlib.pyplot as plt
 
-# Load dataset and extract inputs/labels
-print("Loading data...")
-train_dataset = load_from_disk("data/value/iteration_0/train").shuffle(seed=42)
-inputs = [sample["text"] for sample in train_dataset]
-labels = np.array([sample["label"] for sample in train_dataset], dtype=int)
-class_balance = np.mean(labels)
-print(f"Loaded {len(inputs)} samples, class balance: {class_balance:.4f}")
-
-# Prepare API requests
-questions_and_states = [[parts[0] + '\n', parts[1]] for parts in [inp.split('\n', 1) for inp in inputs]]
-
-# Make predictions
-print("Making predictions...")
 url = "http://127.0.0.1:8051/value-prediction"
-batch_size = 512
-predictions = []
+batch_size = 256
 
-for i in tqdm(range(0, int(len(questions_and_states)/100.0), batch_size)):
-    batch = questions_and_states[i:i+batch_size]
-    try:
-        response = requests.post(url, json={"questions_and_states": batch}, 
-                               headers={"Content-Type": "application/json"}, timeout=30)
-        predictions.extend(response.json()["results"])
-    except Exception as e:
-        print(f"Error in batch {i//batch_size}: {e}")
-
-predictions = np.array(predictions)
-for i in range(100):
-    print(predictions[i])
-    print(labels[i])
-    print(questions_and_states[i])
-    print()
-# Replace invalid values if any
-invalid_mask = np.isnan(predictions) | np.isinf(predictions)
-if np.any(invalid_mask):
-    predictions[invalid_mask] = 0.5
-
-# Calculate metrics
-auroc = roc_auc_score(labels, predictions)
-ap = average_precision_score(labels, predictions)
-print(f"AUROC: {auroc:.4f}, Average Precision: {ap:.4f}")
-
-# Plot curves
-plt.figure(figsize=(12, 5))
-
-# ROC curve
-fpr, tpr, _ = roc_curve(labels, predictions)
-plt.subplot(1, 2, 1)
-plt.plot(fpr, tpr, label=f'AUROC = {auroc:.4f}')
-plt.plot([0, 1], [0, 1], 'k--', label='Random')
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.legend(loc="lower right")
-
-# Precision-Recall curve
-precision, recall, _ = precision_recall_curve(labels, predictions)
-plt.subplot(1, 2, 2)
-plt.plot(recall, precision, label=f'AP = {ap:.4f}')
-plt.axhline(y=class_balance, color='r', linestyle='--', label=f'Baseline ({class_balance:.4f})')
-plt.xlabel('Recall')
-plt.ylabel('Precision')
-plt.legend(loc="upper right")
-
-plt.tight_layout()
-plt.savefig('value_model_curves.png')
-
-# Calculate additional metrics
-threshold = 0.5
-binary_preds = (predictions >= threshold).astype(int)
-accuracy = (binary_preds == labels).mean()
-
-tp = np.sum((binary_preds == 1) & (labels == 1))
-fp = np.sum((binary_preds == 1) & (labels == 0))
-tn = np.sum((binary_preds == 0) & (labels == 0))
-fn = np.sum((binary_preds == 0) & (labels == 1))
-
-precision_val = tp / (tp + fp) if (tp + fp) > 0 else 0
-recall_val = tp / (tp + fn) if (tp + fn) > 0 else 0
-f1 = 2 * precision_val * recall_val / (precision_val + recall_val) if (precision_val + recall_val) > 0 else 0
-
-print(f"Accuracy: {accuracy:.4f}, Precision: {precision_val:.4f}, Recall: {recall_val:.4f}, F1: {f1:.4f}")
-
-# Find optimal threshold
-thresholds = np.linspace(0, 1, 100)
-f1_scores = []
-
-for t in thresholds:
-    preds = (predictions >= t).astype(int)
-    tp = np.sum((preds == 1) & (labels == 1))
-    fp = np.sum((preds == 1) & (labels == 0))
-    fn = np.sum((preds == 0) & (labels == 1))
-    
-    p = tp / (tp + fp) if (tp + fp) > 0 else 0
-    r = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1_scores.append(2 * p * r / (p + r) if (p + r) > 0 else 0)
-
-best_threshold = thresholds[np.argmax(f1_scores)]
-best_f1 = np.max(f1_scores)
-print(f"Best threshold: {best_threshold:.4f} (F1 = {best_f1:.4f})")
-
-# Save results
-np.savez('value_model_results.npz', predictions=predictions, labels=labels, 
-         fpr=fpr, tpr=tpr, precision=precision, recall=recall, auroc=auroc, ap=ap)
+q = "Use 7, 7, 8, 12 to make 61.\n"
+s1 = "7+8=15 (left: 7, 12, 15)\n"
+s2 = "12-7=5 (left: 5, 15)\n"
+s3 = "15/5=3 (left: 3)\n"
+a = "The answer is: (7+8)/(12-7)= 3.\n"
+inputs = [[q,""], [q, s1], [q, s1 + s2], [q, s1 + s2 + s3], [q, s1 + s2 + s3 + a]]
+response = requests.post(url, json={"questions_and_states": inputs})
+for r in response.json():
+    print(r)

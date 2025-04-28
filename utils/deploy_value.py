@@ -39,8 +39,8 @@ class ValueServer:
             print("Value model loaded.")
             
             # Set the value token ID for "1"
-            tokenizer = AutoTokenizer.from_pretrained(self.value_model)
-            self.value_token_id = tokenizer.encode("1", add_special_tokens=False)[0]
+            self.tokenizer = AutoTokenizer.from_pretrained(self.value_model)
+            self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
             print(f"Value token ID for '1': {self.value_token_id}")
 
         @app.post(self.endpoint)
@@ -61,33 +61,33 @@ class ValueServer:
                 print(traceback.format_exc())
                 raise HTTPException(status_code=500, detail=f"Error during prediction: {str(e)}")
     
-    def _predict_value(self, llm, texts):
-        """Predict value scores based on first token logprobs"""
-        try:
-            # Configure sampling parameters
-            sampling_params = SamplingParams(max_tokens=1, logprobs=20)
-            outputs = llm.generate(texts, sampling_params, use_tqdm=False)
-            
-            results = []
-            for i, output in enumerate(outputs):
-                try:
-                    log_dict = output.outputs[0].logprobs[0]
-                    if self.value_token_id in log_dict:
-                        logprob = log_dict[self.value_token_id].logprob
-                        value = math.exp(logprob)
-                    else:
-                        value = 0.0
-                    results.append(value)
-                except Exception as e:
-                    print(f"ERROR processing output {i+1}: {str(e)}")
-                    print(f"Output structure: {output}")
-                    raise
-            
-            return results
-        except Exception as e:
-            print(f"ERROR in _predict_value: {str(e)}")
-            print(traceback.format_exc())
-            raise
+    def _predict_value(self, llm, texts: List[str]):
+        captured_logits: List[torch.Tensor] = []
+
+        def _grab_value(_, logits: torch.Tensor):
+            if logits.dim() == 1:
+                # scalar → make it a 1‐element vector
+                val = logits[self.value_token_id].unsqueeze(0)      # shape [1]
+            else:
+                val = logits[:, self.value_token_id]               # shape [batch]
+            captured_logits.append(val.detach())
+            return logits
+
+        params = SamplingParams(
+            max_tokens        = 1,
+            temperature       = 0.0,
+            top_k             = 1,
+            logits_processors = [_grab_value],
+        )
+        llm.generate(texts, params, use_tqdm=False)
+        if len(captured_logits) < len(texts):
+            raise RuntimeError("Did not capture enough logits")
+        first_logits = torch.cat(captured_logits[:len(texts)], dim=0)  # gives a 1D tensor of length len(texts)
+        probs = torch.sigmoid(first_logits)
+        print(first_logits.tolist())
+        print(probs.tolist())
+        return probs.cpu().tolist()
+
     
     def start(self):
         """Start the server in a background thread"""

@@ -114,6 +114,9 @@ class ValueModel(torch.nn.Module):
             use_cache=False,               # needed for gradient‑checkpointing
             ignore_mismatched_sizes=True,
         )
+        
+        # Add config attribute to make push_to_hub work
+        self.config = self.model.config
         # Disable gradient checkpointing for small sequences (40 tokens)
 
 
@@ -121,20 +124,18 @@ class ValueModel(torch.nn.Module):
         # Forward through base LM and grab column of interest
         logits_full = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
         logits_value = logits_full[..., self.value_token_id]  # [B, L]
-        
-        # Create mask for positions that are newline-related tokens
         newline_mask = torch.zeros_like(input_ids[:, :-1], dtype=torch.bool)
         for token in self.newline_token_ids:
             newline_mask |= (input_ids[:, :-1] == token)
-
         logits_sel = logits_value[:, :-1][newline_mask]  # [K]
-
-        if logits_sel.numel() == 0:
-            print("WARNING: No newlines found in batch, returning zero loss")
-            return {"loss": logits_value.sum() * 0, "logits": logits_sel}
-
-        labels_sel = labels.float().unsqueeze(1).expand_as(newline_mask)[newline_mask]
+        labels_sel = labels.float().unsqueeze(1).expand_as(newline_mask)[newline_mask]  # [K]
+        print("")
+        print(logits_sel.tolist())
+        print(torch.sigmoid(logits_sel).tolist())
+        print(labels_sel.tolist())
         loss = F.binary_cross_entropy_with_logits(logits_sel, labels_sel, reduction="mean")
+        print(loss.item())
+        os._exit(1)
         return {"loss": loss, "logits": logits_sel}
 
 # ───────────────────────── Trainer wrapper ────────────────────────── #
@@ -158,7 +159,6 @@ class ValueTrainer:
         for token, token_id in self.tokenizer.get_vocab().items():
             if '\n' in self.tokenizer.decode([token_id]):
                 self.newline_token_ids.append(token_id)
-        print(f"Found {len(self.newline_token_ids)} tokens containing newlines")
         self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
         print(f"Value token ID for '1': {self.value_token_id}")
 
@@ -221,13 +221,14 @@ class ValueTrainer:
 
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
-        train_dataset = self._tokenize_split(dataset["train"]).shuffle(seed=42)
-        dev_dataset = self._tokenize_split(dataset["dev"]).shuffle(seed=42).select(range(min(3000, len(dataset["dev"]))))
+        #train_dataset = self._tokenize_split(dataset["train"].shuffle(seed=42))
+        dev_dataset = self._tokenize_split(dataset["dev"].shuffle(seed=42).select(range(3000))) ##############
+        print(self.tokenizer.decode(dev_dataset[0]["input_ids"]))
 
         trainer = Trainer(
             model=self.model,
             args=self._create_training_args(),
-            train_dataset=train_dataset,
+            train_dataset=dev_dataset.select(range(0, 1)), ###############
             eval_dataset=dev_dataset,
             data_collator=self.data_collator,
             tokenizer=self.tokenizer,
@@ -239,7 +240,7 @@ class ValueTrainer:
         )
 
         # Provide dataset size to progress bar callback
-        trainer.args.train_dataset_size = len(train_dataset)
+        trainer.args.train_dataset_size = len(dev_dataset.select(range(0, 1))) ###############
 
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
@@ -254,7 +255,14 @@ class ValueTrainer:
             print("Training interrupted – saving current model…")
 
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
-        trainer.push_to_hub()
-        print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
-        shutil.rmtree(self.temp_dir)
+        try:
+            trainer.push_to_hub()
+            print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
+            import shutil
+            shutil.rmtree(self.temp_dir)
+        except Exception as e:
+            print(f"Error pushing to hub: {e}")
+            print("Saving model locally instead...")
+            trainer.save_model(os.path.join(self.temp_dir, "final_model"))
+            print(f"Model saved locally to: {os.path.join(self.temp_dir, 'final_model')}")
 

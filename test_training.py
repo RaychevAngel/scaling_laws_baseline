@@ -9,14 +9,14 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 def main():
     with open("train/config_policy.yaml", "r") as f:
         config1 = yaml.safe_load(f)
-    config1['model_name'] += str(0)
+    config1['model_name'] += str(1)
     config1['dataset_file'] += str(0)
     config1['plot_path'] += str(0)
     config1['hub_model_id'] += str(1)
 
     # Initialize and run training
-    trainer = PolicyTrainer(config1)
-    trainer.train()
+    #trainer = PolicyTrainer(config1)
+    #trainer.train()
 
     with open("train/config_value.yaml", "r") as f:
         config2 = yaml.safe_load(f)
