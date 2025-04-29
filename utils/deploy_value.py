@@ -3,7 +3,11 @@ import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+import os
+os.environ["VLLM_USE_V1"] = "0" 
 from vllm import LLM, SamplingParams
+
 from typing import List, Tuple
 import threading
 from transformers import AutoTokenizer
@@ -62,31 +66,32 @@ class ValueServer:
                 raise HTTPException(status_code=500, detail=f"Error during prediction: {str(e)}")
     
     def _predict_value(self, llm, texts: List[str]):
-        captured_logits: List[torch.Tensor] = []
+        captured_vals: List[float] = []
 
         def _grab_value(_, logits: torch.Tensor):
+            # compute probabilities and convert to Python floats right away
             if logits.dim() == 1:
-                # scalar → make it a 1‐element vector
-                val = logits[self.value_token_id].unsqueeze(0)      # shape [1]
+                p = torch.sigmoid(logits[self.value_token_id]).item()
+                captured_vals.append(p)
             else:
-                val = logits[:, self.value_token_id]               # shape [batch]
-            captured_logits.append(val.detach())
-            return logits
+                ps = torch.sigmoid(logits[:, self.value_token_id]).tolist()
+                captured_vals.extend(ps)
+            return logits  # return unmodified so generation continues
 
         params = SamplingParams(
             max_tokens        = 1,
-            temperature       = 0.0,
+            temperature       = 0.0,  # greedy
             top_k             = 1,
             logits_processors = [_grab_value],
         )
+
         llm.generate(texts, params, use_tqdm=False)
-        if len(captured_logits) < len(texts):
-            raise RuntimeError("Did not capture enough logits")
-        first_logits = torch.cat(captured_logits[:len(texts)], dim=0)  # gives a 1D tensor of length len(texts)
-        probs = torch.sigmoid(first_logits)
-        print(first_logits.tolist())
-        print(probs.tolist())
-        return probs.cpu().tolist()
+
+        if len(captured_vals) < len(texts):
+            raise RuntimeError(f"Expected {len(texts)} values but got {len(captured_vals)}")
+
+        return captured_vals
+
 
     
     def start(self):

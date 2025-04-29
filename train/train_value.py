@@ -2,6 +2,7 @@
 import os
 import tempfile
 from pathlib import Path
+import shutil
 
 import matplotlib.pyplot as plt
 import torch
@@ -27,32 +28,22 @@ class LossScalingCallback(TrainerCallback):
 
 
 class EpochProgressBar(TrainerCallback):
-    """Live epoch progress with tqdm."""
+    """Simple callback to show current epoch."""
 
     def __init__(self):
-        self.progress_bar = None
         self.current_epoch = 0
 
     def on_train_begin(self, args, state, control, **kwargs):
-        device_count = max(1, torch.cuda.device_count())
-        steps_per_epoch = args.train_dataset_size // (
-            args.per_device_train_batch_size * device_count * args.gradient_accumulation_steps
-        )
-        self.progress_bar = tqdm(total=steps_per_epoch, desc="Epoch 1", leave=True)
+        print(f"Starting training, epoch 1")
 
     def on_step_end(self, args, state, control, **kwargs):
         epoch_int = int(state.epoch)
         if epoch_int != self.current_epoch:
-            self.progress_bar.reset()
-            self.progress_bar.set_description(f"Epoch {epoch_int + 1}")
+            print(f"Epoch {epoch_int + 1}")
             self.current_epoch = epoch_int
-        fractional = state.epoch - epoch_int
-        self.progress_bar.n = int(fractional * self.progress_bar.total)
-        self.progress_bar.refresh()
 
     def on_train_end(self, *_, **__):
-        if self.progress_bar:
-            self.progress_bar.close()
+        print("Training completed")
 
 
 class LossPlotCallback(TrainerCallback):
@@ -114,7 +105,6 @@ class ValueModel(torch.nn.Module):
             use_cache=False,               # needed for gradient‑checkpointing
             ignore_mismatched_sizes=True,
         )
-        
         # Add config attribute to make push_to_hub work
         self.config = self.model.config
         # Disable gradient checkpointing for small sequences (40 tokens)
@@ -129,13 +119,7 @@ class ValueModel(torch.nn.Module):
             newline_mask |= (input_ids[:, :-1] == token)
         logits_sel = logits_value[:, :-1][newline_mask]  # [K]
         labels_sel = labels.float().unsqueeze(1).expand_as(newline_mask)[newline_mask]  # [K]
-        print("")
-        print(logits_sel.tolist())
-        print(torch.sigmoid(logits_sel).tolist())
-        print(labels_sel.tolist())
         loss = F.binary_cross_entropy_with_logits(logits_sel, labels_sel, reduction="mean")
-        print(loss.item())
-        os._exit(1)
         return {"loss": loss, "logits": logits_sel}
 
 # ───────────────────────── Trainer wrapper ────────────────────────── #
@@ -168,6 +152,7 @@ class ValueTrainer:
             newline_token_ids=self.newline_token_ids,
             value_token_id=self.value_token_id
         )
+
 
         self.data_collator = DataCollatorWithPadding(self.tokenizer, pad_to_multiple_of=8)
         
@@ -221,14 +206,13 @@ class ValueTrainer:
 
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
-        #train_dataset = self._tokenize_split(dataset["train"].shuffle(seed=42))
-        dev_dataset = self._tokenize_split(dataset["dev"].shuffle(seed=42).select(range(3000))) ##############
-        print(self.tokenizer.decode(dev_dataset[0]["input_ids"]))
+        train_dataset = self._tokenize_split(dataset["train"].shuffle(seed=42))
+        dev_dataset = self._tokenize_split(dataset["dev"].shuffle(seed=42).select(range(min(3000, len(dataset["dev"])))))
 
         trainer = Trainer(
             model=self.model,
             args=self._create_training_args(),
-            train_dataset=dev_dataset.select(range(0, 1)), ###############
+            train_dataset=train_dataset,
             eval_dataset=dev_dataset,
             data_collator=self.data_collator,
             tokenizer=self.tokenizer,
@@ -239,8 +223,7 @@ class ValueTrainer:
             ],
         )
 
-        # Provide dataset size to progress bar callback
-        trainer.args.train_dataset_size = len(dev_dataset.select(range(0, 1))) ###############
+        trainer.args.train_dataset_size = len(train_dataset)
 
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
@@ -249,6 +232,9 @@ class ValueTrainer:
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
 
+        init_metrics = trainer.evaluate()
+        print(f"Initial dev loss: {init_metrics['eval_loss']}")
+
         try:
             trainer.train()
         except KeyboardInterrupt:
@@ -256,13 +242,24 @@ class ValueTrainer:
 
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
         try:
-            trainer.push_to_hub()
-            print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
-            import shutil
-            shutil.rmtree(self.temp_dir)
+            if trainer.state.best_metric < init_metrics['eval_loss']:
+                # Try to push to hub first
+                try:
+                    self.model.model.push_to_hub(self.config["hub_model_id"], push_functional=True)
+                    self.tokenizer.push_to_hub(self.config["hub_model_id"])
+                    print(f"Model and tokenizer successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
+                    shutil.rmtree(self.temp_dir)
+                except Exception as e:
+                    print(f"Error pushing to hub: {e}")
+                    print("Saving model locally instead...")
+                    # Save the best model parameters locally
+                    best_model_path = os.path.join(self.temp_dir, "best_model")
+                    os.makedirs(best_model_path, exist_ok=True)
+                    self.model.model.save_pretrained(best_model_path)
+                    self.tokenizer.save_pretrained(best_model_path)
+                    print(f"Best model and tokenizer saved locally to: {best_model_path}")
+            else:
+                print("Best eval loss is higher than initial dev loss. Not pushing to hub.")
         except Exception as e:
-            print(f"Error pushing to hub: {e}")
-            print("Saving model locally instead...")
-            trainer.save_model(os.path.join(self.temp_dir, "final_model"))
-            print(f"Model saved locally to: {os.path.join(self.temp_dir, 'final_model')}")
+            print(f"Error in model saving process: {e}")
 

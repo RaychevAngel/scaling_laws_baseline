@@ -12,7 +12,7 @@ branch_factor: 3
 max_expansions: 20
 temperature: 0.5
 c_explore: 0.3
-batch_size: 1
+batch_size: 100
 
 # Evaluation configuration
 stats_interval: 30

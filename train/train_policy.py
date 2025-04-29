@@ -15,46 +15,22 @@ class LossScalingCallback(TrainerCallback):
             logs["loss"] /= args.gradient_accumulation_steps
 
 class EpochProgressBar(TrainerCallback):
+    """Simple callback to show current epoch."""
+
     def __init__(self):
-        self.progress_bar = None
-        self.current_epoch = None
-    
-    def on_train_begin(self, args, state, control, **kwargs):
-        if self.progress_bar is not None:
-            self.progress_bar.close()
-            
-        device_count = max(1, torch.cuda.device_count())
-        steps_per_epoch = args.train_dataset_size // (args.per_device_train_batch_size * device_count * args.gradient_accumulation_steps)
-        
-        self.progress_bar = tqdm(
-            total=steps_per_epoch,
-            desc="Epoch Progress",
-            position=0,
-            leave=True
-        )
         self.current_epoch = 0
-    
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        print(f"Starting training, epoch 1")
+
     def on_step_end(self, args, state, control, **kwargs):
-        if self.progress_bar is not None:
-            epoch_floor = int(state.epoch)
-            if epoch_floor != self.current_epoch:
-                self.current_epoch = epoch_floor
-                self.progress_bar.reset()
-                self.progress_bar.set_description(f"Epoch {epoch_floor + 1}")
-            
-            fraction_in_epoch = state.epoch - epoch_floor
-            current_step = int(fraction_in_epoch * self.progress_bar.total)
-            
-            self.progress_bar.n = current_step
-            self.progress_bar.refresh()
-    
-    def on_train_end(self, args, state, control, **kwargs):
-        if self.progress_bar is not None:
-            self.progress_bar.close()
-            self.progress_bar = None
-            
-    def on_evaluate(self, args, state, control, **kwargs):
-        print(f"\nEvaluating at step {state.global_step} (epoch {state.epoch:.2f})")
+        epoch_int = int(state.epoch)
+        if epoch_int != self.current_epoch:
+            print(f"Epoch {epoch_int + 1}")
+            self.current_epoch = epoch_int
+
+    def on_train_end(self, *_, **__):
+        print("Training completed")
 
 class LossPlotCallback(TrainerCallback):
     """Callback to plot training and evaluation loss during training."""
@@ -227,12 +203,35 @@ class PolicyTrainer:
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
         
         # Train and push to hub
+        init_metrics = trainer.evaluate()
+        print(f"Initial dev loss: {init_metrics['eval_loss']}")
+        
         try:
             trainer.train()
+            print("Best eval loss:", trainer.state.best_metric)
         except KeyboardInterrupt:
             print("\nTraining interrupted. Saving and pushing current model to Hugging Face Hub...")
-            
+
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
-        trainer.push_to_hub()
-        print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
-        shutil.rmtree(self.temp_dir)
+        try:
+            if trainer.state.best_metric < init_metrics['eval_loss']:
+                # Try to push to hub first
+                try:
+                    trainer.push_to_hub()
+                    print(f"Model successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
+                    shutil.rmtree(self.temp_dir)
+                except Exception as e:
+                    print(f"Error pushing to hub: {e}")
+                    print("Saving model locally instead...")
+                    # Save the best model parameters locally
+                    best_model_path = os.path.join(self.temp_dir, "best_model")
+                    os.makedirs(best_model_path, exist_ok=True)
+                    trainer.save_model(best_model_path)
+                    print(f"Best model saved locally to: {best_model_path}")
+            else:
+                print("Best eval loss is higher than initial dev loss. Not pushing to hub.")
+        except Exception as e:
+            print(f"Error pushing to hub: {e}")
+            print("Saving model locally instead...")
+            trainer.save_model(os.path.join(self.temp_dir, "policy_final_model"))
+            print(f"Model saved locally to: {os.path.join(self.temp_dir, 'policy_final_model')}")

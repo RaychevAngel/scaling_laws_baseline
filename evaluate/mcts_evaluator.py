@@ -45,8 +45,6 @@ class MCTSTree_Evaluate(MCTSTree):
                         for child in current.children:
                             if not child.is_terminal:
                                 self.non_terminal_leaves.append(child)
-                            else:
-                                print(f"Question: {self.question}\nTerminal node:\n{child.state}Terminal node value: {child.evaluate_terminal_state(self.question)}\n")
                         self.expansion_count += 1
                 except Exception as e:
                     print(f"Expansion error: {e}")
@@ -131,6 +129,7 @@ class RunMCTS_Evaluate(RunMCTS):
         """Print current data collection and processing progress."""
         super()._print_collection_stats()
         print(f"Test examples collected: {len(self.forest_test.results)}/{self.forest_test.required_examples}")
+        print(f"Test accuracy: {sum(self.forest_test.results) / len(self.forest_test.results)}")
         
     def export_evaluation_results(self, accuracy: float) -> None:
         """Export evaluation results and configuration as a YAML file."""

@@ -15,8 +15,8 @@ c_explore: 0.3
 batch_size: 100
 
 # Target data generation parameters
-target_examples_train: 20000
-target_examples_dev: 5000
+target_examples_train: 100000
+target_examples_dev: 20000
 
 # Data paths
 train_questions_path: "questions/train.txt"
