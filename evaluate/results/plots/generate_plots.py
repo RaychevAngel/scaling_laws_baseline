@@ -11,12 +11,12 @@ list1 = [
     (6, 43, 0.342), (7, 37, 0.339), (8, 32, 0.364), (9, 28, 0.360), 
     (10, 26, 0.372), (6, 85, 0.318), (8, 64, 0.359), (10, 51, 0.385), 
     (12, 43, 0.386), (14, 37, 0.402), (16, 32, 0.411), (10, 102, 0.378),
-    (13, 79, 0.401), (16, 64, 0.411), (19, 54, 0.437), (22, 47, 0.432)
+    (13, 79, 0.401), (16, 64, 0.421), (19, 54, 0.435), (22, 47, 0.428)
 ]
 
 compressed_list1 = [
     (4, 0.127), (16, 0.201), (32, 0.236), (64, 0.291), 
-    (128, 0.336), (256, 0.372), (512, 0.411), (1024, 0.437)
+    (128, 0.336), (256, 0.372), (512, 0.411), (1024, 0.435)
     ]
 
 list2 = [
@@ -50,7 +50,8 @@ list3 = [
 
 compressed_list3 = [
     (4, 0.272), (16, 0.316),  (32, 0.350), (64, 0.396), 
-    (128, 0.432), (256, 0.444), (512, 0.477), (1024, 0.499)]
+    (128, 0.432), (256, 0.444), (512, 0.477), (1024, 0.499)
+    ]
 
 list4 = [
     (1, 4, 0.277), (2, 8, 0.321), (2, 16, 0.313), (3, 11, 0.356), 
@@ -69,6 +70,20 @@ compressed_list4 = [
     (4, 0.277), (16, 0.321), (32, 0.356), (64, 0.419), 
     (128, 0.429), (256, 0.457), (512, 0.491), (1024, 0.492)
 ]
+
+list5_ = [
+    (1, 4, 0.275), (2, 8, 0.358), (2, 16, 0.364), (3, 11, 0.383),
+    (4, 16, 0.414), (5, 13, 0.419), (6, 11, 0.442), (7, 9, 0.436),
+    (7, 18, 0.454), (8, 16, 0.469), (9, 14, 0.468), (10, 13, 0.479),
+    (11, 23, 0.482), (12, 21, 0.482), (13, 20, 0.495), (14, 18, 0.508),
+    (14, 37, 0.507),(16, 32, 0.512), (18, 28, 0.521), (20, 26, 0.520),
+    (19, 54, 0.516),(22, 47, 0.534), (25, 41, 0.526), (28, 37, 0.520)
+]
+
+compressed_list5 = [
+    (4, 0.275), (16, 0.358), (32, 0.383), (64, 0.442), 
+    (128, 0.479), (256, 0.508), (512, 0.521), (1024, 0.534)
+    ]
 
 # Generate contour plots
 def create_contour_plot(data_points, iteration):
@@ -112,13 +127,15 @@ def create_scaling_plot():
     tokens_2, accuracy_2 = process_data(compressed_list2)
     tokens_3, accuracy_3 = process_data(compressed_list3)
     tokens_4, accuracy_4 = process_data(compressed_list4)
+    tokens_5, accuracy_5 = process_data(compressed_list5)
     
     plt.figure(figsize=(12, 8), dpi=300)
     plt.semilogx(tokens_1, accuracy_1, 'o-', label='Iteration 1')
     plt.semilogx(tokens_2, accuracy_2, 's-', label='Iteration 2')
     plt.semilogx(tokens_3, accuracy_3, '^-', label='Iteration 3')
     plt.semilogx(tokens_4, accuracy_4, 'D-', label='Iteration 4')
-    
+    plt.semilogx(tokens_5, accuracy_5, '^-', label='Iteration 3*')
+
     plt.xscale('log')
     plt.xlabel('Tokens', fontsize=12)
     plt.ylabel('Accuracy (%)', fontsize=12)
@@ -130,7 +147,7 @@ def create_scaling_plot():
 
 if __name__ == "__main__":
     # Generate all plots
-    for i, data in enumerate([list1, list2, list3, list4], 1):
+    for i, data in enumerate([list1, list2, list3, list4, list5_], 1):
         create_contour_plot(data, i)
     create_scaling_plot()
 

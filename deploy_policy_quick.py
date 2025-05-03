@@ -13,7 +13,7 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 policy_server = PolicyServer(
-    policy_model="AngelRaychev/0.5B-policy-iteration_1",
+    policy_model="AngelRaychev/0.5B-policy-iteration_3",
     host="127.0.0.1",
     port=8056,
     endpoint="/policy-prediction",)

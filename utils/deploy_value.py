@@ -90,7 +90,7 @@ class ValueServer:
         if len(captured_vals) < len(texts):
             raise RuntimeError(f"Expected {len(texts)} values but got {len(captured_vals)}")
 
-        return captured_vals
+        return captured_vals[0:len(texts)]
 
 
     

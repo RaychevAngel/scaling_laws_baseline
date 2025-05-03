@@ -176,8 +176,8 @@ class PolicyTrainer:
     
     def train(self):
         dataset = load_from_disk(self.config["dataset_file"])
-        train_dataset = dataset["train"].rename_columns({"input": "prompt", "output": "completion"})
-        dev_dataset = dataset["dev"].rename_columns({"input": "prompt", "output": "completion"})
+        train_dataset = dataset["train"]
+        dev_dataset = dataset["dev"]
 
 
         loss_scaling_callback = LossScalingCallback()

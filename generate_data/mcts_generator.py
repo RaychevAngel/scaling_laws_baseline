@@ -12,6 +12,7 @@ class MCTSTree_Generate(MCTSTree):
         super().__init__(question, max_expansions, c_explore, request_queue)
         self.policy_training_data = []
         self.value_training_data = []
+        self.terminal_leaves = []
 
     async def search(self):
         """Perform MCTS search and collect training data."""
@@ -20,10 +21,11 @@ class MCTSTree_Generate(MCTSTree):
             if current.has_children:
                 current = self.select_child(current)
             elif current.is_terminal:
-                self.backpropagate(current, current.evaluate_terminal_state(self.question))
+                label = current.evaluate_terminal_state(self.question)
+                self.backpropagate(current, label, True)
                 current = self.root
             elif not current.is_visited:
-                self.backpropagate(current, current.value_estimate)
+                self.backpropagate(current, current.value_estimate, False)
                 current = self.root
             else:
                 try:
@@ -33,10 +35,7 @@ class MCTSTree_Generate(MCTSTree):
                         current.add_children(new_states)
                         for child in current.children:
                             if child.is_terminal:
-                                label = child.evaluate_terminal_state(self.question)
-                                self.value_training_data.append({"text": self.question + child.state, "label": label})
-                                if label:
-                                    self.policy_training_data.append({"input": self.question, "output": child.state})
+                                self.terminal_leaves.append(child)
                             else:
                                 self.non_terminal_leaves.append(child)
                         self.expansion_count += 1
@@ -44,6 +43,35 @@ class MCTSTree_Generate(MCTSTree):
                     print(f"Expansion error at state '{current.state}': {e}")
                     break
             await asyncio.sleep(0)
+        
+        return self.collect_data()
+
+    def collect_data(self):
+        for leaf in self.terminal_leaves:
+            label = leaf.evaluate_terminal_state(self.question)
+            if label == 1:
+                self.policy_training_data.append({
+                    "prompt": self.question,
+                    "completion": leaf.state
+                })
+            soft_values = []
+            current = leaf
+            while current:
+                if current.labels:
+                    soft_values.append(sum(current.labels) / len(current.labels))
+                else:
+                    soft_values.append(label)
+                current = current.parent
+            self.value_training_data.append({
+                    "text": self.question + leaf.state,
+                    "labels": soft_values[::-1]
+                })
+        print("--------------------------------")
+        print("Policy training data:")
+        print(self.policy_training_data)
+        print("Value training data:")
+        print(self.value_training_data)
+        print("--------------------------------")
         return self.policy_training_data, self.value_training_data
 
 class MCTSForest_Generate(MCTSForest):

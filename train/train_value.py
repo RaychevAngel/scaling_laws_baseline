@@ -163,7 +163,6 @@ class ValueTrainer:
             return self.tokenizer(batch["text"], truncation=True)
 
         dataset_split = dataset_split.map(encode, batched=True, remove_columns=["text"])
-        dataset_split = dataset_split.rename_column("label", "labels")
         dataset_split.set_format("torch")
         return dataset_split
 

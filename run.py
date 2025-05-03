@@ -42,15 +42,15 @@ async def main(num_iterations, policy_gpu_eval, value_gpu_eval,
         'value_plot_path': config_value['plot_path']
     }
 
-    for i in range(4, num_iterations + 1):
+    for i in range(1, num_iterations + 1):
         # Update evaluator config with iteration numbers
-        config_mcts_evaluator['policy_model'] = base_paths['policy_model'] + str(i-1)
-        config_mcts_evaluator['value_model'] = base_paths['value_model'] + str(i)
-        config_mcts_evaluator['export_data_path'] = base_paths['export_data_path'] + str(i)
-        config_mcts_evaluator['test_questions_path'] = "questions/dev.txt"
+        #config_mcts_evaluator['policy_model'] = base_paths['policy_model'] + str(i-1)
+        #config_mcts_evaluator['value_model'] = base_paths['value_model'] + str(i)
+        #config_mcts_evaluator['export_data_path'] = base_paths['export_data_path'] + str(i)
+        #config_mcts_evaluator['test_questions_path'] = "questions/dev.txt"
         
-        evaluator = Evaluator(config_mcts_evaluator, policy_gpu_eval, value_gpu_eval)
-        await evaluator.run()
+        #evaluator = Evaluator(config_mcts_evaluator, policy_gpu_eval, value_gpu_eval)
+        #await evaluator.run()
 
         # Update generator config with iteration numbers
         config_mcts_generator['policy_model'] = base_paths['gen_policy_model'] + str(i)

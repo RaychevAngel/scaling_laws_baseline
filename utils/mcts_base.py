@@ -15,6 +15,7 @@ class MCTSNode:
         self.visit_count = visit_count  # N
         self.action_value = action_value  # Q
         self.value_estimate = value_estimate  # V
+        self.labels = []
         self.is_terminal = "The answer is:" in self.state
 
     @property
@@ -43,7 +44,17 @@ class MCTSNode:
             target = int(target_match.group(1))
             question_nums = sorted([int(x.strip()) for x in numbers_match.group(1).split(',')])
             
-            last_line = self.state.split('\n')[3].removeprefix("The answer is: ").removesuffix(".")
+            # Extract the line containing "The answer is:"
+            answer_line = None
+            for line in self.state.split('\n'):
+                if "The answer is:" in line:
+                    answer_line = line.strip()
+                    break
+            
+            if not answer_line:
+                return 0.0
+                
+            last_line = answer_line.removeprefix("The answer is:").removesuffix(".")
             
             equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(-?\d+)', last_line)
             if not equation_match:
@@ -103,11 +114,13 @@ class MCTSTree:
                             (child.visit_count + 1))
         return max(node.children, key=ucb1)
 
-    def backpropagate(self, node: MCTSNode, value: float):
+    def backpropagate(self, node: MCTSNode, value: float, is_terminal: bool):
         """Update node statistics from leaf to root"""
         while node:
             node.visit_count += 1
             node.action_value += (value - node.action_value) / node.visit_count
+            if is_terminal:
+                node.labels.append(value)
             node = node.parent
 
     async def search(self):
