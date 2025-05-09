@@ -103,7 +103,7 @@ def generate_random_negative_example(problem):
         if random_result and abs(random_result['target'] - target) > 0.001:
             return {
                 "text": problem['question'] + '\n' + random_result['solution'] + random_result['answer'],
-                "label": 0.0
+                "labels": [0.5, 0.0, 0.0, 0.0, 0.0]
             }
     return None
 
@@ -182,14 +182,26 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     train_policy_data, train_value_data = [], []
     for p in train_problems:
         q, sa = p['question'] + '\n', p['solution'] + p['answer']
-        train_policy_data.append({"input": q, "output": sa})
-        train_value_data.append({"text": q + sa, "label": 1.0})
+        train_policy_data.append({
+            "prompt": q,
+            "completion": sa
+        })
+        train_value_data.append({
+            "text": q + sa,
+            "labels": [0.5, 1.0, 1.0, 1.0, 1.0]
+        })
     
     dev_policy_data, dev_value_data = [], []
     for p in dev_problems:
         q, sa = p['question'] + '\n', p['solution'] + p['answer']
-        dev_policy_data.append({"input": q, "output": sa})
-        dev_value_data.append({"text": q + sa, "label": 1.0})
+        dev_policy_data.append({
+            "prompt": q,
+            "completion": sa
+        })
+        dev_value_data.append({
+            "text": q + sa,
+            "labels": [0.5, 1.0, 1.0, 1.0, 1.0]
+        })
     
     # 7. Add negative examples (incorrect solutions with score 0.0)
     print("Generating negative examples...")

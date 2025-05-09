@@ -66,12 +66,6 @@ class MCTSTree_Generate(MCTSTree):
                     "text": self.question + leaf.state,
                     "labels": soft_values[::-1]
                 })
-        print("--------------------------------")
-        print("Policy training data:")
-        print(self.policy_training_data)
-        print("Value training data:")
-        print(self.value_training_data)
-        print("--------------------------------")
         return self.policy_training_data, self.value_training_data
 
 class MCTSForest_Generate(MCTSForest):

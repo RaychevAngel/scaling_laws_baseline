@@ -59,8 +59,8 @@ async def main(num_iterations, policy_gpu_eval, value_gpu_eval,
         config_mcts_generator['value_data_path'] = base_paths['value_data_path'] + str(i)
         
         # Run MCTS data generation
-        data_generator = DataGenerator(config_mcts_generator, policy_gpu_gen, value_gpu_gen)
-        await data_generator.run()
+        #data_generator = DataGenerator(config_mcts_generator, policy_gpu_gen, value_gpu_gen)
+        #await data_generator.run()
 
         # Update policy and value trainer configs
         config_policy['model_name'] = base_paths['policy_model_name'] + str(i)
@@ -69,12 +69,12 @@ async def main(num_iterations, policy_gpu_eval, value_gpu_eval,
         config_policy['hub_model_id'] = base_paths['policy_hub_model_id'] + str(i+1)
         
         # Initialize and run training
-        policy_trainer = PolicyTrainer(config_policy)
-        policy_trainer.train()
-        await asyncio.sleep(60)
-        del policy_trainer
-        import gc; gc.collect()
-        torch.cuda.empty_cache()
+        #policy_trainer = PolicyTrainer(config_policy)
+        #policy_trainer.train()
+        #await asyncio.sleep(60)
+        #del policy_trainer
+        #import gc; gc.collect()
+        #torch.cuda.empty_cache()
         
         config_value['model_name'] = base_paths['value_model_name'] + str(i)
         config_value['dataset_file'] = base_paths['value_dataset_file'] + str(i)

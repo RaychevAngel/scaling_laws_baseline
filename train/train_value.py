@@ -101,8 +101,8 @@ class ValueModel(torch.nn.Module):
             model_name,
             revision=revision,
             torch_dtype=torch.bfloat16,
-            device_map="auto",
             use_cache=False,               # needed for gradient‑checkpointing
+            device_map="auto",
             ignore_mismatched_sizes=True,
         )
         # Add config attribute to make push_to_hub work
@@ -111,15 +111,22 @@ class ValueModel(torch.nn.Module):
 
 
     def forward(self, input_ids, attention_mask=None, labels=None):
+        print("[DEBUG] Entering ValueModel.forward")
+        print("[DEBUG] input_ids shape:", input_ids.shape, "dtype:", input_ids.dtype)
+        if attention_mask is not None:
+            print("[DEBUG] attention_mask shape:", attention_mask.shape, "dtype:", attention_mask.dtype)
+        if labels is not None:
+            print("[DEBUG] labels shape:", labels.shape, "dtype:", labels.dtype)
         # Forward through base LM and grab column of interest
         logits_full = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
         logits_value = logits_full[..., self.value_token_id]  # [B, L]
         newline_mask = torch.zeros_like(input_ids[:, :-1], dtype=torch.bool)
         for token in self.newline_token_ids:
             newline_mask |= (input_ids[:, :-1] == token)
-        logits_sel = logits_value[:, :-1][newline_mask]  # [K]
-        labels_sel = labels.float().unsqueeze(1).expand_as(newline_mask)[newline_mask]  # [K]
+        logits_sel = logits_value[:, :-1][newline_mask]
+        labels_sel = labels.unsqueeze(1).expand_as(newline_mask)[newline_mask]
         loss = F.binary_cross_entropy_with_logits(logits_sel, labels_sel, reduction="mean")
+        print("[DEBUG] Exiting ValueModel.forward, loss:", loss.item())
         return {"loss": loss, "logits": logits_sel}
 
 # ───────────────────────── Trainer wrapper ────────────────────────── #
@@ -160,8 +167,10 @@ class ValueTrainer:
 
     def _tokenize_split(self, dataset_split):
         def encode(batch):
-            return self.tokenizer(batch["text"], truncation=True)
-
+            encoded = self.tokenizer(batch["text"], truncation=True)
+            # Ensure labels are 0/1 scalars per example (flatten nested lists if any)
+            encoded["labels"] = [ (l[0] if isinstance(l, list) else l) for l in batch["labels"] ]
+            return encoded
         dataset_split = dataset_split.map(encode, batched=True, remove_columns=["text"])
         dataset_split.set_format("torch")
         return dataset_split
@@ -201,6 +210,10 @@ class ValueTrainer:
             hub_strategy="end",
             hub_private_repo=False,
             disable_tqdm=True,
+
+            # Evaluate only the scalar loss so that DDP does not try to gather
+            # variable-length `logits` tensors coming out of ValueModel.forward().
+            prediction_loss_only=True,
         )
 
     def train(self):
@@ -231,6 +244,7 @@ class ValueTrainer:
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
 
+        # Build the evaluation metrics before training begins
         init_metrics = trainer.evaluate()
         print(f"Initial dev loss: {init_metrics['eval_loss']}")
 
@@ -239,9 +253,10 @@ class ValueTrainer:
         except KeyboardInterrupt:
             print("Training interrupted – saving current model…")
 
+        # Push or save the best checkpoint
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
         try:
-            if trainer.state.best_metric < init_metrics['eval_loss']:
+            if trainer.state.best_metric is not None and trainer.state.best_metric < init_metrics['eval_loss']:
                 # Try to push to hub first
                 try:
                     self.model.model.push_to_hub(self.config["hub_model_id"], push_functional=True)
@@ -261,4 +276,6 @@ class ValueTrainer:
                 print("Best eval loss is higher than initial dev loss. Not pushing to hub.")
         except Exception as e:
             print(f"Error in model saving process: {e}")
+
+        return
 
