@@ -103,29 +103,39 @@ def generate_random_negative_example(problem):
         if random_result and abs(random_result['target'] - target) > 0.001:
             return {
                 "text": problem['question'] + '\n' + random_result['solution'] + random_result['answer'],
-                "labels": [0.5, 0.0, 0.0, 0.0, 0.0]
+                "labels": [0.0, 0.0, 0.0, 0.0, 0.0]
             }
     return None
 
-def save_questions(train_questions, dev_questions, test_questions):
+def save_questions(train_questions_splits, dev_questions, test_questions):
     """Save questions to files."""
     os.makedirs("questions", exist_ok=True)
     
-    for split, questions in [("train", train_questions), ("dev", dev_questions), ("test", test_questions)]:
-        with open(f"questions/{split}.txt", "w") as f:
+    # Save dev and test sets
+    with open(f"questions/dev.txt", "w") as f:
+        f.write("\n".join(dev_questions))
+    
+    with open(f"questions/test.txt", "w") as f:
+        f.write("\n".join(test_questions))
+    
+    # Save train splits
+    for i, questions in enumerate(train_questions_splits):
+        with open(f"questions/train_{i}.txt", "w") as f:
             f.write("\n".join(questions))
 
 def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
     """Export the generated data using the processor."""
-    for path, data_dict in [
-        ("data/policy/iteration_0", {"train": policy_data_train, "dev": policy_data_dev}),
-        ("data/value/iteration_0", {"train": value_data_train, "dev": value_data_dev})
-    ]:
-        os.makedirs(path, exist_ok=True)
-        DatasetDict({k: Dataset.from_list(v) for k, v in data_dict.items()}).save_to_disk(path)
+    os.makedirs("data/policy/iteration_0", exist_ok=True)
+    os.makedirs("data/value/iteration_0", exist_ok=True)
+    
+    # Save the datasets
+    Dataset.from_list(policy_data_train).save_to_disk("data/policy/iteration_0/train")
+    Dataset.from_list(value_data_train).save_to_disk("data/value/iteration_0/train")
+    Dataset.from_list(policy_data_dev).save_to_disk("data/policy/iteration_0/dev")
+    Dataset.from_list(value_data_dev).save_to_disk("data/value/iteration_0/dev")
 
 # --- Main dataset creation function ---
-def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
+def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_examples_per_positive=9):
     """Create the full dataset for arithmetic reasoning problems."""
     
     # 1. Generate all possible problems
@@ -161,64 +171,105 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"]):
     problems = unique_problems
     print(f"After deduplication: {len(problems)} unique problems")
     
-    # 3. Split into train, dev, test
-    train_problems = problems[40000:]
-    dev_problems = problems[20000:40000]
-    test_problems = problems[:20000]
+    # 3. Split into train/dev/test with 100000/1000/1000 distribution
+    total_problems = len(problems)
+    num_test = 1000
+    num_dev = 1000
+    num_train = min(100000, total_problems - num_test - num_dev)
+    
+    test_problems = problems[:num_test]
+    dev_problems = problems[num_test:num_test+num_dev]
+    train_problems = problems[num_test+num_dev:num_test+num_dev+num_train]
     
     print(f"Split into {len(train_problems)} training, {len(dev_problems)} dev, and {len(test_problems)} test problems")
     
-    # 4. Extract questions for each split
-    train_questions = [p['question'] for p in train_problems]
+    # 4. Further split train into 10 categories (train_0 to train_9)
+    train_splits = []
+    split_size = len(train_problems) // 10
+    for i in range(10):
+        start_idx = i * split_size
+        end_idx = min((i + 1) * split_size, len(train_problems))
+        train_splits.append(train_problems[start_idx:end_idx])
+    
+    print(f"Split training data into 10 subsets of approximately {split_size} problems each")
+    
+    # 5. Extract questions for each split
+    train_questions_splits = [[p['question'] for p in split] for split in train_splits]
     dev_questions = [p['question'] for p in dev_problems]
     test_questions = [p['question'] for p in test_problems]
     
-    # 5. Save questions to files
+    # 6. Save questions to files
     print("Saving questions to files...")
-    save_questions(train_questions, dev_questions, test_questions)
+    save_questions(train_questions_splits, dev_questions, test_questions)
     
-    # 6. Create policy and value data
-    print("Creating policy and value data...")
+    # 7. Create policy and value data only for train_0
+    print("Creating policy and value data for train_0...")
     train_policy_data, train_value_data = [], []
-    for p in train_problems:
+    for p in train_splits[0]:
         q, sa = p['question'] + '\n', p['solution'] + p['answer']
+        
+        # Add positive example to policy data
         train_policy_data.append({
             "prompt": q,
             "completion": sa
         })
+        
+        # Add positive example to value data
         train_value_data.append({
             "text": q + sa,
-            "labels": [0.5, 1.0, 1.0, 1.0, 1.0]
+            "labels": [1.0, 1.0, 1.0, 1.0, 1.0]
         })
+        
+        # Generate negative examples (9 per positive example)
+        negative_examples_generated = 0
+        with tqdm(total=neg_examples_per_positive, desc=f"Generating negative examples for a problem", leave=False) as pbar:
+            max_attempts = neg_examples_per_positive * 3  # Allow more attempts to find enough negative examples
+            attempts = 0
+            
+            while negative_examples_generated < neg_examples_per_positive and attempts < max_attempts:
+                if neg_ex := generate_random_negative_example(p):
+                    train_value_data.append(neg_ex)
+                    negative_examples_generated += 1
+                    pbar.update(1)
+                attempts += 1
     
+    # Generate policy and value data for dev
+    print("Creating policy and value data for dev set...")
     dev_policy_data, dev_value_data = [], []
     for p in dev_problems:
         q, sa = p['question'] + '\n', p['solution'] + p['answer']
+        
+        # Add positive example to policy data
         dev_policy_data.append({
             "prompt": q,
             "completion": sa
         })
+        
+        # Add positive example to value data
         dev_value_data.append({
             "text": q + sa,
-            "labels": [0.5, 1.0, 1.0, 1.0, 1.0]
+            "labels": [1.0, 1.0, 1.0, 1.0, 1.0]
         })
+        
+        # Generate negative examples (9 per positive example)
+        negative_examples_generated = 0
+        with tqdm(total=neg_examples_per_positive, desc=f"Generating negative examples for a dev problem", leave=False) as pbar:
+            max_attempts = neg_examples_per_positive * 3  # Allow more attempts to find enough negative examples
+            attempts = 0
+            
+            while negative_examples_generated < neg_examples_per_positive and attempts < max_attempts:
+                if neg_ex := generate_random_negative_example(p):
+                    dev_value_data.append(neg_ex)
+                    negative_examples_generated += 1
+                    pbar.update(1)
+                attempts += 1
     
-    # 7. Add negative examples (incorrect solutions with score 0.0)
-    print("Generating negative examples...")
-    for problems, value_data, desc in [(train_problems, train_value_data, "Training"), 
-                                      (dev_problems, dev_value_data, "Dev")]:
-        with tqdm(total=len(problems), desc=f"{desc} negative examples") as pbar:
-            for problem in problems:
-                if neg_ex := generate_random_negative_example(problem):
-                    value_data.append(neg_ex)
-                pbar.update(1)
-    
-    # 8. Export all data
+    # 8. Export data for train_0 and dev
     print("Exporting data to files...")
     export_data(train_policy_data, train_value_data, dev_policy_data, dev_value_data)
     print("Dataset creation completed successfully!")
 
 if __name__ == "__main__":
-    create_dataset(range_start=1, range_end=12, operations=["+", "-", "*", "/"])
+    create_dataset(range_start=1, range_end=12, operations=["+", "-", "*", "/"], neg_examples_per_positive=9)
 
 

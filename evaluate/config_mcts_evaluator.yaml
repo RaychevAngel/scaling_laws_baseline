@@ -8,16 +8,14 @@ policy_model: "AngelRaychev/0.5B-policy-iteration_"  # Base name for policy mode
 value_model: "AngelRaychev/0.5B-value-iteration_"    # Base name for value model
 
 # MCTS parameters
-branch_factor: 3
-max_expansions: 20
-temperature: 0.5
+branch_factor: 8
+max_expansions: 48
+temperature: 1.0
 c_explore: 0.3
-batch_size: 100
+batch_size: 50
 
 # Evaluation configuration
 stats_interval: 30
-delta: 0.1
-epsilon: 0.02
 
 # Data paths
 test_questions_path: "questions/test.txt"

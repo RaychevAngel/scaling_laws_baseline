@@ -1,7 +1,7 @@
 from typing import List, Dict, Tuple, Callable
 import random
 import asyncio
-from utils.mcts_base import MCTSTree, MCTSForest, RunMCTS
+from utils.mcts_base import MCTSNode, MCTSTree, MCTSForest, RunMCTS
 from datasets import Dataset, DatasetDict
 import os
 
@@ -12,41 +12,13 @@ class MCTSTree_Generate(MCTSTree):
         super().__init__(question, max_expansions, c_explore, request_queue)
         self.policy_training_data = []
         self.value_training_data = []
-        self.terminal_leaves = []
 
-    async def search(self):
-        """Perform MCTS search and collect training data."""
-        current = self.root
-        while self.expansion_count < self.max_expansions and self.non_terminal_leaves:
-            if current.has_children:
-                current = self.select_child(current)
-            elif current.is_terminal:
-                label = current.evaluate_terminal_state(self.question)
-                self.backpropagate(current, label, True)
-                current = self.root
-            elif not current.is_visited:
-                self.backpropagate(current, current.value_estimate, False)
-                current = self.root
-            else:
-                try:
-                    new_states = await self.get_action_values(current)
-                    if new_states:
-                        self.non_terminal_leaves.remove(current)
-                        current.add_children(new_states)
-                        for child in current.children:
-                            if child.is_terminal:
-                                self.terminal_leaves.append(child)
-                            else:
-                                self.non_terminal_leaves.append(child)
-                        self.expansion_count += 1
-                except Exception as e:
-                    print(f"Expansion error at state '{current.state}': {e}")
-                    break
-            await asyncio.sleep(0)
+    def _handle_terminal_node(self, node: MCTSNode) -> float:
+        """Handle terminal node by evaluating its state"""
+        return node.evaluate_terminal_state(self.question)
         
-        return self.collect_data()
-
-    def collect_data(self):
+    def _get_search_result(self):
+        """Get generation results by collecting data from terminal nodes"""
         for leaf in self.terminal_leaves:
             label = leaf.evaluate_terminal_state(self.question)
             if label == 1:
@@ -72,28 +44,26 @@ class MCTSForest_Generate(MCTSForest):
     """Forest of MCTS trees for training."""
     
     def __init__(self, questions: List[str],
-                 max_expansions: int, num_trees: int, c_explore: float, 
-                 policy_value_fn: Callable, target_examples: int,
-                 batch_size: int):
-        super().__init__(questions, max_expansions, num_trees, c_explore, 
+                 max_expansions: int, c_explore: float, 
+                 policy_value_fn: Callable, batch_size: int):
+        super().__init__(questions, max_expansions, c_explore, 
                         batch_size, policy_value_fn)
         self.policy_training_data, self.value_training_data = [], []
-        self.target_examples = target_examples
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree for training."""
         return MCTSTree_Generate(question=question, max_expansions=self.max_expansions,
                                c_explore=self.c_explore, request_queue=self.request_queue)
         
-    def _should_stop_collection(self) -> bool:
-        """Stop when we've collected enough examples"""
-        return len(self.value_training_data) >= self.target_examples
-        
     def _process_result(self, result):
         """Process policy and value data from tree search"""
         policy_data, value_data = result
         self.policy_training_data.extend(policy_data)
         self.value_training_data.extend(value_data)
+        
+    def _print_additional_stats(self):
+        """Print additional training statistics"""
+        print(f"Examples collected: {len(self.value_training_data)}")
 
     async def run_forest(self):
         """Run the MCTS forest with parallel tree processing."""
@@ -132,20 +102,13 @@ class RunMCTS_Generate(RunMCTS):
             'max_expansions': self.config['max_expansions'],
             'c_explore': self.config['c_explore'],
             'batch_size': self.config['batch_size'],
-            'num_trees': 2 * self.config['batch_size'],
         }
         
         return (
-            MCTSForest_Generate(questions=self.questions_train, target_examples=self.config['target_examples_train'], **common_params),
-            MCTSForest_Generate(questions=self.questions_val, target_examples=self.config['target_examples_dev'], **common_params)
+            MCTSForest_Generate(questions=self.questions_train, **common_params),
+            MCTSForest_Generate(questions=self.questions_val, **common_params)
         )
     
-    def _print_collection_stats(self) -> None:
-        """Print current data collection and processing progress."""
-        super()._print_collection_stats()
-        print(f"Train examples collected: {len(self.forest_train.value_training_data)}/{self.config['target_examples_train']}")
-        print(f"Dev examples collected: {len(self.forest_val.value_training_data)}/{self.config['target_examples_dev']}")
-
     def export_training_data(self, train_data: Tuple[List, List], val_data: Tuple[List, List]) -> None:
         """Export processed policy and value training data to files."""
         policy_train, value_train = train_data
@@ -161,8 +124,15 @@ class RunMCTS_Generate(RunMCTS):
 
     async def _run_implementation(self):
         """Run the MCTS forest."""
-        train_data = await self.forest_train.run_forest()
-        val_data = await self.forest_val.run_forest()
-        self.export_training_data(train_data, val_data)
-        print(f"Total API calls: {self.total_api_calls}")
-        return train_data, val_data 
+        try:
+            train_monitor_task = asyncio.create_task(self._monitor_collection([self.forest_train]))
+            train_data = await self.forest_train.run_forest()
+            train_monitor_task.cancel()
+            val_monitor_task = asyncio.create_task(self._monitor_collection([self.forest_val]))
+            val_data = await self.forest_val.run_forest()
+            val_monitor_task.cancel()
+            self.export_training_data(train_data, val_data)
+            return train_data, val_data
+        except Exception as e:
+            print(f"Error in _run_implementation: {e}")
+            raise

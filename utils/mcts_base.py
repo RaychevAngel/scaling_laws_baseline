@@ -1,10 +1,14 @@
 from typing import Callable, List, Dict, Tuple
 from typing_extensions import Self
-import re
+import os
 import time
+import re
 import asyncio
 import requests
 import random
+from graphviz import Digraph
+from IPython.display import Image, display
+
 
 class MCTSNode:
     """Node in Monte Carlo Tree Search"""
@@ -96,6 +100,7 @@ class MCTSTree:
         self.c_explore = c_explore
         self.request_queue = request_queue
         self.non_terminal_leaves = [self.root]
+        self.terminal_leaves = []
 
     async def get_action_values(self, node: MCTSNode) -> list[tuple[str, float]]:
         """Get action-value pairs from policy-value network"""
@@ -122,26 +127,125 @@ class MCTSTree:
             if is_terminal:
                 node.labels.append(value)
             node = node.parent
+            
+    def _handle_terminal_node(self, node: MCTSNode) -> float:
+        """Handle terminal node - return label value (to be implemented by subclasses)"""
+        raise NotImplementedError("Subclasses must implement _handle_terminal_node method")
+        
+    def _handle_expansion(self, node: MCTSNode, new_states: list[tuple[str, float]]):
+        """Handle node expansion (can be overridden by subclasses for specialized behavior)"""
+        if new_states:
+            self.non_terminal_leaves.remove(node)
+            node.add_children(new_states)
+            for child in node.children:
+                if child.is_terminal:
+                    self.terminal_leaves.append(child)
+                else:
+                    self.non_terminal_leaves.append(child)
+            self.expansion_count += 1
+            
+    def _get_search_result(self):
+        """Get result of search (to be implemented by subclasses)"""
+        raise NotImplementedError("Subclasses must implement _get_search_result method")
 
     async def search(self):
-        """Base method for MCTS search (to be implemented by subclasses)"""
-        raise NotImplementedError("Subclasses must implement search method")
+        """Common MCTS search implementation"""
+        current = self.root
+        while self.expansion_count < self.max_expansions and self.non_terminal_leaves:
+            if current.has_children:
+                current = self.select_child(current)
+            elif current.is_terminal:
+                label = self._handle_terminal_node(current)
+                self.backpropagate(current, label, True)
+                current = self.root
+            elif not current.is_visited:
+                self.backpropagate(current, current.value_estimate, False)
+                current = self.root
+            else:
+                try:
+                    new_states = await self.get_action_values(current)
+                    self._handle_expansion(current, new_states)
+                except Exception as e:
+                    print(f"Expansion error at state '{current.state}': {e}")
+                    break
+            await asyncio.sleep(0)
+        
+        # Visualization is disabled by default
+        self.visualize_tree(enable=False)
+        return self._get_search_result()
+
+
+    def visualize_tree(self, enable=False):
+        if not enable:
+            return
+            
+        try:
+            os.makedirs('visualizations', exist_ok=True)
+            q, nodes, values = [self.root], [], []
+            while q:
+                node = q.pop(0)  # Use FIFO queue to process breadth-first
+                nodes.append(node)
+                values.append(node.action_value)
+                q.extend(node.children)
+            def _value_to_hex(v):
+                """blue (low) --> red (high) gradient."""
+                # action_value is already normalized to a suitable range
+                r, g, b = (int(c*255) for c in (v, 0.2, 1-v))
+                return f"#{r:02x}{g:02x}{b:02x}"
+
+            dot = Digraph("tree", graph_attr={"rankdir": "TB"})  # Top→Bottom
+            for idx, node in enumerate(nodes):
+                nid = f"n{idx}"
+                node._dot_id = nid                         # stash for edges
+                label = f"{self.question}\n {node.state}{node.action_value:.3f}\n{node.visit_count}"
+                dot.node(nid, label=label,
+                        style="filled",
+                        fillcolor=_value_to_hex(node.action_value))
+        
+            for node in nodes:
+                for child in node.children:
+                    dot.edge(node._dot_id, child._dot_id)
+
+            timestamp = int(time.time())
+            filename = f"visualizations/tree_{timestamp}.png"
+            dot.render(filename.replace('.png', ''), format="png", cleanup=True)
+        except Exception as e:
+            print(f"Error visualizing tree: {e}")
+            import traceback
+            traceback.print_exc()
 
 class MCTSForest:
     """Forest of MCTS trees for parallel exploration"""
-    def __init__(self, questions: List[str], max_expansions: int, num_trees: int, 
+    def __init__(self, questions: List[str], max_expansions: int, 
                  c_explore: float, batch_size: int,
                  policy_value_fn: Callable[[List[Tuple[str, str]]], List[List[Tuple[str, float]]]]):
         self.questions = questions
+        self.left_questions = list(questions)
+        self.ended_questions_count = 0
+        self.questions_lock = asyncio.Lock()
+
+        self.trees = [None] * (2 * batch_size)
         self.max_expansions = max_expansions
-        self.num_trees = num_trees
         self.c_explore = c_explore
         self.policy_value_fn = policy_value_fn
         self.request_queue = asyncio.Queue()
         self.batch_size = batch_size
+        
         self.start_time = time.time()
         self.total_api_calls = 0
-        self.trees = [self._create_tree(random.choice(questions)) for _ in range(num_trees)]
+        
+                
+    def print_stats(self):
+        """Print current statistics about forest progress"""
+        runtime = time.time() - self.start_time
+        print(f"\n--- Stats after {runtime:.1f} seconds ---")
+        print(f"API throughput: {self.total_api_calls / runtime} calls/sec")
+        print(f"Questions progress: {self.ended_questions_count}/{len(self.questions)}")
+        self._print_additional_stats()
+        
+    def _print_additional_stats(self):
+        """Hook for subclasses to print additional statistics"""
+        pass
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree (to be implemented by subclasses)"""
@@ -163,7 +267,6 @@ class MCTSForest:
                     batch, futures = [], []  # Reset for next batch
                     asyncio.create_task(self._process_network_requests(current_batch, current_futures))
             except asyncio.TimeoutError:
-                print("Timeout error")
                 pass
             await asyncio.sleep(0.001)
 
@@ -187,33 +290,26 @@ class MCTSForest:
     async def _run_tree_spot(self, spot_index: int):
         """Run a single tree spot in the forest"""
         while True:
-            current_question = None
             try:
-                if self._should_stop_collection():
-                    break
-
-                tree = self.trees[spot_index]
-                current_question = tree.question
-                result = await tree.search()
+                async with self.questions_lock:
+                    if not self.left_questions:
+                        break
+                    question = self.left_questions.pop(0)
+                    self.trees[spot_index] = self._create_tree(question)
+                result = await self.trees[spot_index].search()
                 self._process_result(result)
-                
-                # Replace with a new tree on a different question
-                next_question = random.choice(self.questions)
-                self.trees[spot_index] = self._create_tree(next_question)
+                self.ended_questions_count += 1
             except Exception as e:
                 print(f"Tree error at spot {spot_index}: {str(e)}")
-                print(f"Current question: {current_question}")
+                if self.trees[spot_index]:
+                    print(f"Current question: {self.trees[spot_index].question}")
                 import traceback
                 traceback.print_exc()
                 await asyncio.sleep(1)
     
-    def _should_stop_collection(self) -> bool:
-        """Determine if collection should stop (to be implemented by subclasses)"""
-        raise NotImplementedError("Subclasses must implement _should_stop_collection method")
-    
     def _process_result(self, result):
         """Process result from tree search (to be implemented by subclasses)"""
-        raise NotImplementedError("Subclasses must implement _process_result method")
+        pass
 
     async def run_forest(self):
         """Run the MCTS forest with parallel tree processing"""
@@ -238,14 +334,7 @@ class RunMCTS:
         with open(path, 'r') as f:
             return [line.strip() + '\n' for line in f]
             
-    def _print_collection_stats(self) -> None:
-        """Print current data collection and processing progress"""
-        runtime = time.time() - self.start_time
-        print(f"\n--- Stats after {runtime:.1f} seconds ---")
-        print(f"API throughput: {self.total_api_calls / runtime} calls/sec")
-        print(f"Total API calls: {self.total_api_calls}")
-            
-    async def _monitor_collection(self) -> None:
+    async def _monitor_collection(self, forests):
         """Monitor collection progress"""
         stats_interval = self.config['stats_interval']
         last_stats = time.time()
@@ -253,7 +342,8 @@ class RunMCTS:
         while True:
             current_time = time.time()
             if current_time - last_stats >= stats_interval:
-                self._print_collection_stats()
+                for forest in forests:
+                    forest.print_stats()
                 last_stats = current_time
             await asyncio.sleep(5)
             
@@ -263,7 +353,8 @@ class RunMCTS:
             
     async def run(self) -> None:
         """Run the MCTS process with monitoring"""
-        monitor_task = asyncio.create_task(self._monitor_collection())
+        # This dummy implementation will be overridden by subclasses
+        monitor_task = asyncio.create_task(self._monitor_collection([]))
         try:
             return await self._run_implementation()
         finally:

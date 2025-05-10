@@ -8,18 +8,14 @@ policy_model: "AngelRaychev/0.5B-policy-iteration_"
 value_model: "AngelRaychev/0.5B-value-iteration_"
 
 # MCTS parameters
-branch_factor: 22
-max_expansions: 47
+branch_factor: 14
+max_expansions: 37
 temperature: 0.5
 c_explore: 0.3
-batch_size: 20
-
-# Target data generation parameters
-target_examples_train: 1000
-target_examples_dev: 200
+batch_size: 30
 
 # Data paths
-train_questions_path: "questions/train.txt"
+train_questions_path: "questions/train_"
 dev_questions_path: "questions/dev.txt"
 
 # Output paths for generated data

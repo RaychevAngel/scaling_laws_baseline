@@ -111,13 +111,6 @@ class ValueModel(torch.nn.Module):
 
 
     def forward(self, input_ids, attention_mask=None, labels=None):
-        print("[DEBUG] Entering ValueModel.forward")
-        print("[DEBUG] input_ids shape:", input_ids.shape, "dtype:", input_ids.dtype)
-        if attention_mask is not None:
-            print("[DEBUG] attention_mask shape:", attention_mask.shape, "dtype:", attention_mask.dtype)
-        if labels is not None:
-            print("[DEBUG] labels shape:", labels.shape, "dtype:", labels.dtype)
-        # Forward through base LM and grab column of interest
         logits_full = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
         logits_value = logits_full[..., self.value_token_id]  # [B, L]
         newline_mask = torch.zeros_like(input_ids[:, :-1], dtype=torch.bool)
@@ -126,7 +119,6 @@ class ValueModel(torch.nn.Module):
         logits_sel = logits_value[:, :-1][newline_mask]
         labels_sel = labels.unsqueeze(1).expand_as(newline_mask)[newline_mask]
         loss = F.binary_cross_entropy_with_logits(logits_sel, labels_sel, reduction="mean")
-        print("[DEBUG] Exiting ValueModel.forward, loss:", loss.item())
         return {"loss": loss, "logits": logits_sel}
 
 # ───────────────────────── Trainer wrapper ────────────────────────── #

@@ -5,7 +5,7 @@ import signal
 import sys
 
 # Hide GPU 0 from the process, but make other GPUs available if they exist
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # Skip GPU 0, make GPUs 1-7 available if they exist
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # Skip GPU 0, make GPUs 1-7 available if they exist
 
 # Handle graceful shutdown with Ctrl+C
 def signal_handler(sig, frame):
@@ -15,9 +15,9 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 value_server = ValueServer(
-    value_model="AngelRaychev/0.5B-value-iteration_6",
+    value_model="AngelRaychev/0.5B-value-iteration_1",
     host="127.0.0.1",
-    port=8051,
+    port=8053,
     endpoint="/value-prediction",)
 #    revision="7a9818b7d779398639928aafc4a09dbf5e3e8324")
 
