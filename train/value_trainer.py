@@ -4,11 +4,13 @@ import tempfile
 from pathlib import Path
 import shutil
 
+# Set tokenizers parallelism to avoid fork warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from datasets import load_from_disk
-from tqdm.auto import tqdm
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -19,40 +21,13 @@ from transformers import (
 )
 
 # ───────────────────────── Callback utilities ──────────────────────────── #
-class LossScalingCallback(TrainerCallback):
-    """Scale the reported training loss when using gradient accumulation."""
-
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs and "loss" in logs:
-            logs["loss"] /= args.gradient_accumulation_steps
-
-
-class EpochProgressBar(TrainerCallback):
-    """Simple callback to show current epoch."""
-
-    def __init__(self):
-        self.current_epoch = 0
-
-    def on_train_begin(self, args, state, control, **kwargs):
-        print(f"Starting training, epoch 1")
-
-    def on_step_end(self, args, state, control, **kwargs):
-        epoch_int = int(state.epoch)
-        if epoch_int != self.current_epoch:
-            print(f"Epoch {epoch_int + 1}")
-            self.current_epoch = epoch_int
-
-    def on_train_end(self, *_, **__):
-        print("Training completed")
-
-
 class LossPlotCallback(TrainerCallback):
-    """Interactive matplotlib plot of train/eval loss curves."""
+    """Interactive matplotlib plot of train loss curves."""
 
     def __init__(self, plot_path: str):
         self.plot_path = Path(plot_path)
-        self.train_losses, self.eval_losses = [], []
-        self.train_steps, self.eval_steps = [], []
+        self.train_losses = []
+        self.train_steps = []
         self.fig, self.ax = plt.subplots(figsize=(10, 6))
         plt.ion()
         self.log_count = 0
@@ -60,13 +35,10 @@ class LossPlotCallback(TrainerCallback):
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs is None:
             return
-        if self.log_count > 3:
+        if self.log_count > 1:
             if "loss" in logs:
                 self.train_losses.append(logs["loss"])
                 self.train_steps.append(state.global_step)
-            if "eval_loss" in logs:
-                self.eval_losses.append(logs["eval_loss"])
-                self.eval_steps.append(state.global_step)
         
         self.log_count += 1
         self._update_plot()
@@ -75,8 +47,6 @@ class LossPlotCallback(TrainerCallback):
         self.ax.clear()
         if self.train_losses:
             self.ax.plot(self.train_steps, self.train_losses, label="train")
-        if self.eval_losses:
-            self.ax.plot(self.eval_steps, self.eval_losses, label="eval")
         self.ax.set_xlabel("steps")
         self.ax.set_ylabel("loss")
         self.ax.legend(); self.ax.grid(True)
@@ -101,14 +71,12 @@ class ValueModel(torch.nn.Module):
             model_name,
             revision=revision,
             torch_dtype=torch.bfloat16,
-            use_cache=False,               # needed for gradient‑checkpointing
+            use_cache=False,
             device_map="auto",
             ignore_mismatched_sizes=True,
         )
         # Add config attribute to make push_to_hub work
         self.config = self.model.config
-        # Disable gradient checkpointing for small sequences (40 tokens)
-
 
     def forward(self, input_ids, attention_mask=None, labels=None):
         logits_full = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
@@ -126,9 +94,10 @@ class ValueTrainer:
     """High‑level orchestrator: dataset ↔ tokenizer ↔ Trainer."""
 
     def __init__(self, config: dict):
-        # Global performance toggles
-        self._apply_speed_optimizations()
-
+        # Apply speed optimizations
+        torch.set_float32_matmul_precision("high")
+        torch.backends.cudnn.benchmark = True  
+        
         self.config = config
         self.tokenizer = AutoTokenizer.from_pretrained(
             config["model_name"],
@@ -152,46 +121,34 @@ class ValueTrainer:
             value_token_id=self.value_token_id
         )
 
-
         self.data_collator = DataCollatorWithPadding(self.tokenizer, pad_to_multiple_of=8)
-        
         self.temp_dir = tempfile.mkdtemp()
 
-    def _tokenize_split(self, dataset_split):
+    def _tokenize_dataset(self, dataset):
         def encode(batch):
             encoded = self.tokenizer(batch["text"], truncation=True)
             # Ensure labels are 0/1 scalars per example (flatten nested lists if any)
             encoded["labels"] = [ (l[0] if isinstance(l, list) else l) for l in batch["labels"] ]
             return encoded
-        dataset_split = dataset_split.map(encode, batched=True, remove_columns=["text"])
-        dataset_split.set_format("torch")
-        return dataset_split
-
-    def _apply_speed_optimizations(self):
-        """Apply speed optimizations for A100 GPUs."""
-        # Enable flash kernels
-        torch.set_float32_matmul_precision("high")
-        torch.backends.cudnn.benchmark = True  
+        dataset = dataset.map(encode, batched=True, remove_columns=["text"])
+        dataset.set_format("torch")
+        return dataset
 
     def _create_training_args(self):
         return TrainingArguments(
             output_dir=self.temp_dir,
 
             per_device_train_batch_size=int(self.config["per_device_train_batch_size"]),
-            per_device_eval_batch_size=int(self.config["per_device_eval_batch_size"]),
             gradient_accumulation_steps=int(self.config["gradient_accumulation_steps"]),
-            num_train_epochs=int(self.config["num_train_epochs"]),
+            num_train_epochs=1,
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
 
             logging_steps=int(self.config["logging_steps"]),
             logging_first_step=True,
-            eval_strategy="steps",
-            eval_steps=int(self.config["eval_steps"]),
-            save_steps=int(self.config["eval_steps"]),
-            save_total_limit=1,
-            metric_for_best_model="eval_loss",
-            load_best_model_at_end=True,
+            
+            # Simple save steps
+            save_strategy="no",
 
             bf16=True,
             dataloader_num_workers=64,
@@ -202,32 +159,27 @@ class ValueTrainer:
             hub_strategy="end",
             hub_private_repo=False,
             disable_tqdm=True,
-
-            # Evaluate only the scalar loss so that DDP does not try to gather
-            # variable-length `logits` tensors coming out of ValueModel.forward().
-            prediction_loss_only=True,
         )
 
     def train(self):
-        dataset = load_from_disk(self.config["dataset_file"])
-        train_dataset = self._tokenize_split(dataset["train"].shuffle(seed=42))
-        dev_dataset = self._tokenize_split(dataset["dev"].shuffle(seed=42).select(range(min(3000, len(dataset["dev"])))))
+        # Load dataset 
+        raw_dataset = load_from_disk(self.config["dataset_file"]).shuffle(seed=42)
+        dataset = self._tokenize_dataset(raw_dataset)
+
+        callbacks = [
+            LossPlotCallback(self.config["plot_path"]),
+        ]
 
         trainer = Trainer(
             model=self.model,
             args=self._create_training_args(),
-            train_dataset=train_dataset,
-            eval_dataset=dev_dataset,
+            train_dataset=dataset,
             data_collator=self.data_collator,
             tokenizer=self.tokenizer,
-            callbacks=[
-                EpochProgressBar(),
-                LossScalingCallback(),
-                LossPlotCallback(self.config["plot_path"]),
-            ],
+            callbacks=callbacks,
         )
 
-        trainer.args.train_dataset_size = len(train_dataset)
+        trainer.args.train_dataset_size = len(dataset)
 
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
@@ -236,38 +188,19 @@ class ValueTrainer:
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
         print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
 
-        # Build the evaluation metrics before training begins
-        init_metrics = trainer.evaluate()
-        print(f"Initial dev loss: {init_metrics['eval_loss']}")
-
         try:
             trainer.train()
+            print("Training completed!")
         except KeyboardInterrupt:
-            print("Training interrupted – saving current model…")
+            print("Training interrupted.")
 
-        # Push or save the best checkpoint
+        # Push the final model
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")
         try:
-            if trainer.state.best_metric is not None and trainer.state.best_metric < init_metrics['eval_loss']:
-                # Try to push to hub first
-                try:
-                    self.model.model.push_to_hub(self.config["hub_model_id"], push_functional=True)
-                    self.tokenizer.push_to_hub(self.config["hub_model_id"])
-                    print(f"Model and tokenizer successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
-                    shutil.rmtree(self.temp_dir)
-                except Exception as e:
-                    print(f"Error pushing to hub: {e}")
-                    print("Saving model locally instead...")
-                    # Save the best model parameters locally
-                    best_model_path = os.path.join(self.temp_dir, "best_model")
-                    os.makedirs(best_model_path, exist_ok=True)
-                    self.model.model.save_pretrained(best_model_path)
-                    self.tokenizer.save_pretrained(best_model_path)
-                    print(f"Best model and tokenizer saved locally to: {best_model_path}")
-            else:
-                print("Best eval loss is higher than initial dev loss. Not pushing to hub.")
+            self.model.model.push_to_hub(self.config["hub_model_id"], push_functional=True)
+            self.tokenizer.push_to_hub(self.config["hub_model_id"])
+            print(f"Model and tokenizer successfully pushed to: https://huggingface.co/{self.config['hub_model_id']}")
+            shutil.rmtree(self.temp_dir)
         except Exception as e:
-            print(f"Error in model saving process: {e}")
-
-        return
+            print(f"Error pushing to hub: {e}")
 

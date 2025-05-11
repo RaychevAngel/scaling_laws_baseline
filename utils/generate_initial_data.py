@@ -123,16 +123,14 @@ def save_questions(train_questions_splits, dev_questions, test_questions):
         with open(f"questions/train_{i}.txt", "w") as f:
             f.write("\n".join(questions))
 
-def export_data(policy_data_train, value_data_train, policy_data_dev, value_data_dev):
+def export_data(policy_data_train, value_data_train):
     """Export the generated data using the processor."""
     os.makedirs("data/policy/iteration_0", exist_ok=True)
     os.makedirs("data/value/iteration_0", exist_ok=True)
     
     # Save the datasets
-    Dataset.from_list(policy_data_train).save_to_disk("data/policy/iteration_0/train")
-    Dataset.from_list(value_data_train).save_to_disk("data/value/iteration_0/train")
-    Dataset.from_list(policy_data_dev).save_to_disk("data/policy/iteration_0/dev")
-    Dataset.from_list(value_data_dev).save_to_disk("data/value/iteration_0/dev")
+    Dataset.from_list(policy_data_train).save_to_disk("data/policy/iteration_0")
+    Dataset.from_list(value_data_train).save_to_disk("data/value/iteration_0")
 
 # --- Main dataset creation function ---
 def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_examples_per_positive=9):
@@ -233,40 +231,9 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
                     pbar.update(1)
                 attempts += 1
     
-    # Generate policy and value data for dev
-    print("Creating policy and value data for dev set...")
-    dev_policy_data, dev_value_data = [], []
-    for p in dev_problems:
-        q, sa = p['question'] + '\n', p['solution'] + p['answer']
-        
-        # Add positive example to policy data
-        dev_policy_data.append({
-            "prompt": q,
-            "completion": sa
-        })
-        
-        # Add positive example to value data
-        dev_value_data.append({
-            "text": q + sa,
-            "labels": [1.0, 1.0, 1.0, 1.0, 1.0]
-        })
-        
-        # Generate negative examples (9 per positive example)
-        negative_examples_generated = 0
-        with tqdm(total=neg_examples_per_positive, desc=f"Generating negative examples for a dev problem", leave=False) as pbar:
-            max_attempts = neg_examples_per_positive * 3  # Allow more attempts to find enough negative examples
-            attempts = 0
-            
-            while negative_examples_generated < neg_examples_per_positive and attempts < max_attempts:
-                if neg_ex := generate_random_negative_example(p):
-                    dev_value_data.append(neg_ex)
-                    negative_examples_generated += 1
-                    pbar.update(1)
-                attempts += 1
-    
-    # 8. Export data for train_0 and dev
+    # 8. Export data for train_0
     print("Exporting data to files...")
-    export_data(train_policy_data, train_value_data, dev_policy_data, dev_value_data)
+    export_data(train_policy_data, train_value_data)
     print("Dataset creation completed successfully!")
 
 if __name__ == "__main__":

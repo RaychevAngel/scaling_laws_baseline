@@ -39,7 +39,9 @@ class ValueServer:
                 model=self.value_model,
                 tensor_parallel_size=1,
                 disable_log_stats=True,
-                revision=self.revision)
+                revision=self.revision,
+                gpu_memory_utilization=0.95
+                )
             print("Value model loaded.")
             
             # Set the value token ID for "1"

@@ -10,13 +10,12 @@ value_model: "AngelRaychev/0.5B-value-iteration_"
 # MCTS parameters
 branch_factor: 14
 max_expansions: 37
-temperature: 0.5
+temperature: 1.0
 c_explore: 0.3
 batch_size: 30
 
 # Data paths
 train_questions_path: "questions/train_"
-dev_questions_path: "questions/dev.txt"
 
 # Output paths for generated data
 policy_data_path: "data/policy/iteration_"

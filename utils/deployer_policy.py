@@ -35,7 +35,8 @@ class PolicyServer:
                     model=self.policy_model,
                     tensor_parallel_size=1,
                     disable_log_stats=True,
-                    revision=self.revision
+                    revision=self.revision,
+                    gpu_memory_utilization=0.95
                 )
                 print("Policy model loaded.")
             except Exception as e:
