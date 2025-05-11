@@ -4,9 +4,9 @@ import time
 import sys
 
 ########################################################
-i = 1
-policy_port = 8050
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+i = 4
+policy_port = 8056
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 ########################################################
 
 policy_server = PolicyServer(

@@ -4,9 +4,9 @@ import yaml
 import asyncio
 
 ########################################################    
-i = 1
-policy_port = 8050
-value_port = 8051
+i = 3
+policy_port = 8056
+value_port = 8057
 ########################################################
 
 async def main():
@@ -27,8 +27,8 @@ async def main():
     generate_config['temperature'] = 1.0
     generate_config['c_explore'] = 0.3
 
-    forward_passes = 300
-    generate_config['batch_size'] = forward_passes / generate_config['branch_factor']
+    forward_passes = 200
+    generate_config['batch_size'] = int(forward_passes / generate_config['branch_factor'])
 
     policy_value_fn = PolicyValueFunction(generate_config)
     await RunMCTS_Generate(generate_config, policy_value_fn).run()

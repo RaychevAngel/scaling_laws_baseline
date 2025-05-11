@@ -180,7 +180,7 @@ class MCTSTree:
             return
             
         try:
-            os.makedirs('visualizations', exist_ok=True)
+            os.makedirs('visualizations', exist_ok=False)
             q, nodes, values = [self.root], [], []
             while q:
                 node = q.pop(0)  # Use FIFO queue to process breadth-first

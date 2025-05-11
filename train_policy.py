@@ -3,8 +3,8 @@ import os
 from train.policy_trainer import PolicyTrainer
 
 ########################################################
-i = 1
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+i = 3
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 ########################################################s
 
 def main():

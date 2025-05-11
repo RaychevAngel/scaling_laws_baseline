@@ -75,7 +75,7 @@ class RunMCTS_Evaluate(RunMCTS):
         """Load questions from configured file."""
         try:
             test_questions = self._read_questions(self.config['test_questions_path'])
-            return test_questions[:500]
+            return test_questions
         except FileNotFoundError as e:
             print(f"Error loading questions: {e}")
             return []
