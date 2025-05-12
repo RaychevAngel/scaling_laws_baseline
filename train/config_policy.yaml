@@ -3,7 +3,7 @@ model_name: AngelRaychev/0.5B-policy-iteration_
 revision: None
 hub_model_id: AngelRaychev/0.5B-policy-iteration_
 dataset_file: data/policy/iteration_
-plot_path: train/logs_policy/iteration_
+plot_path: logs/training/policy/iteration_
 device: cuda
 
 # Optimization parameters

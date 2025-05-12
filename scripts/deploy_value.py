@@ -4,9 +4,9 @@ import time
 import sys
 
 ########################################################
-i = 4
-value_port = 8057
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+i = 3
+value_port = 8053
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 ########################################################
 
 value_server = ValueServer(

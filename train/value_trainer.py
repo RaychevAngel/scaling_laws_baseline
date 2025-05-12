@@ -1,64 +1,15 @@
 #!/usr/bin/env python3
 import os
 import tempfile
-from pathlib import Path
 import shutil
-
-# Set tokenizers parallelism to avoid fork warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from datasets import load_from_disk
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    DataCollatorWithPadding,
-    Trainer,
-    TrainingArguments,
-    TrainerCallback,
-)
+from transformers import AutoModelForCausalLM, AutoTokenizer, DataCollatorWithPadding, Trainer, TrainingArguments
+from utils.callbacks import LossPlotCallback
 
-# ───────────────────────── Callback utilities ──────────────────────────── #
-class LossPlotCallback(TrainerCallback):
-    """Interactive matplotlib plot of train loss curves."""
-
-    def __init__(self, plot_path: str):
-        self.plot_path = Path(plot_path)
-        self.train_losses = []
-        self.train_steps = []
-        self.fig, self.ax = plt.subplots(figsize=(10, 6))
-        plt.ion()
-        self.log_count = 0
-
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is None:
-            return
-        if self.log_count > 1:
-            if "loss" in logs:
-                self.train_losses.append(logs["loss"])
-                self.train_steps.append(state.global_step)
-        
-        self.log_count += 1
-        self._update_plot()
-
-    def _update_plot(self):
-        self.ax.clear()
-        if self.train_losses:
-            self.ax.plot(self.train_steps, self.train_losses, label="train")
-        self.ax.set_xlabel("steps")
-        self.ax.set_ylabel("loss")
-        self.ax.legend(); self.ax.grid(True)
-        self.plot_path.parent.mkdir(parents=True, exist_ok=True)
-        self.fig.tight_layout(); self.fig.savefig(self.plot_path)
-        plt.pause(0.05)
-
-    def on_train_end(self, *_, **__):
-        self.plot_path.parent.mkdir(parents=True, exist_ok=True)
-        self.fig.savefig(self.plot_path)
-        plt.close(self.fig)
-        print(f"Loss plot saved to {self.plot_path}")
+# Set tokenizers parallelism to avoid fork warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # ───────────────────────── Model wrapper ──────────────────────────── #
 class ValueModel(torch.nn.Module):
@@ -112,7 +63,6 @@ class ValueTrainer:
             if '\n' in self.tokenizer.decode([token_id]):
                 self.newline_token_ids.append(token_id)
         self.value_token_id = self.tokenizer.encode("1", add_special_tokens=False)[0]
-        print(f"Value token ID for '1': {self.value_token_id}")
 
         self.model = ValueModel(
             model_name=config["model_name"],
@@ -167,7 +117,7 @@ class ValueTrainer:
         dataset = self._tokenize_dataset(raw_dataset)
 
         callbacks = [
-            LossPlotCallback(self.config["plot_path"]),
+            LossPlotCallback(self.config["plot_path"], "Value"),
         ]
 
         trainer = Trainer(

@@ -1,73 +1,11 @@
 import os
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_from_disk
 from trl import SFTConfig, SFTTrainer
 import tempfile, shutil, torch
-from tqdm.auto import tqdm
-import matplotlib.pyplot as plt
-import numpy as np
+from utils.callbacks import LossPlotCallback
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-# ─────────────────────────── Callbacks ──────────────────────────── #
-class LossScalingCallback(TrainerCallback):
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs and "loss" in logs:
-            logs["loss"] /= args.gradient_accumulation_steps
-
-class LossPlotCallback(TrainerCallback):
-    """Callback to plot training loss during training."""
-    def __init__(self, plot_path: str):
-        self.plot_path = plot_path
-        self.train_losses = []
-        self.train_steps = []
-        self.fig, self.ax = plt.subplots(figsize=(10, 6))
-        plt.ion()  # Turn on interactive mode
-        self.log_count = 0  # Counter for iterations
-        
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is None:
-            return
-        
-        if self.log_count > 1:
-            if "loss" in logs:
-                # Collect training loss data
-                loss = logs["loss"] 
-                self.train_losses.append(loss)
-                self.train_steps.append(state.global_step)
-        
-        self.log_count += 1
-        self._update_plot()
-        
-    def _update_plot(self):
-        self.ax.clear()
-        if self.train_losses:
-            self.ax.plot(self.train_steps, self.train_losses, 'b-', label='Training Loss')
-            
-        self.ax.set_xlabel('Steps')
-        self.ax.set_ylabel('Loss')
-        self.ax.set_title('Training Loss')
-        self.ax.legend()
-        self.ax.grid(True)
-        
-        # Use logarithmic scale if values vary widely
-        if self.train_losses and min(self.train_losses) > 0 and max(self.train_losses) / min(self.train_losses) > 10:
-            self.ax.set_yscale('log')
-            
-        plt.tight_layout()
-        plt.draw()
-        plt.pause(0.1)
-        
-        # Save the plot on each update
-        os.makedirs(os.path.dirname(self.plot_path), exist_ok=True)
-        plt.savefig(self.plot_path)
-        
-    def on_train_end(self, args, state, control, **kwargs):
-        # Save the final plot
-        os.makedirs(os.path.dirname(self.plot_path), exist_ok=True)
-        plt.savefig(self.plot_path)
-        plt.close(self.fig)
-        print(f"Loss plot saved to {self.plot_path}")
-
 
 # ─────────────────────────── Model wrapper ───────────────────────── #
 class PolicySFTTrainer(SFTTrainer):
@@ -104,9 +42,6 @@ class PolicyTrainer:
             device_map="auto"
         )
         
-        # Enable gradient checkpointing for memory efficiency
-        self.model.gradient_checkpointing_enable()
-        
         self.tokenizer = AutoTokenizer.from_pretrained(
             config["model_name"],
             revision=config["revision"] if config["revision"] != "None" else None
@@ -141,23 +76,15 @@ class PolicyTrainer:
         )
     
     def train(self):
-        # Load dataset 
-        dataset = load_from_disk(self.config["dataset_file"]).shuffle(seed=42)
-
-        callbacks = [
-            LossScalingCallback(),
-            LossPlotCallback(self.config["plot_path"]),
-        ]
-
-        trainer = PolicySFTTrainer(
+        trainer = SFTTrainer(
             model=self.model,
-            train_dataset=dataset,
+            train_dataset=load_from_disk(self.config["dataset_file"]).shuffle(seed=42),
             args=self._create_trainer_config(),
-            callbacks=callbacks,
+            callbacks=[LossPlotCallback(self.config["plot_path"], model_type="Policy")],
         )
         
         # Provide dataset size to progress bar callback
-        trainer.args.train_dataset_size = len(dataset)
+        trainer.args.train_dataset_size = len(trainer.train_dataset)
         
         # Print training configuration
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")

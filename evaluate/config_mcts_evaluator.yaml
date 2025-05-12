@@ -19,4 +19,4 @@ stats_interval: 30
 
 # Data paths
 test_questions_path: "questions/dev.txt"
-export_data_path: "results/iteration_"
+export_data_path: "logs/evaluation/iteration_"

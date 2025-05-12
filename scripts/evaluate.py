@@ -4,9 +4,9 @@ import yaml
 import asyncio
 
 ########################################################
-i = 1
-policy_port = 8054
-value_port = 8055
+i = 3
+policy_port = 8052
+value_port = 8053
 ########################################################
 
 async def main():

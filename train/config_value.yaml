@@ -3,7 +3,7 @@ model_name: AngelRaychev/0.5B-value-iteration_
 revision: None
 hub_model_id: AngelRaychev/0.5B-value-iteration_
 dataset_file: data/value/iteration_
-plot_path: train/logs_value/iteration_
+plot_path: logs/training/value/iteration_
 device: cuda
 
 # Optimization parameters
