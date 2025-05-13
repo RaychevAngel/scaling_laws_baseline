@@ -155,7 +155,6 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
     print(f"Generated {len(problems)} valid problems")
     
     # 2. Shuffle and deduplicate problems
-    random.shuffle(problems)
     seen_questions = set()
     unique_problems = []
     
@@ -167,13 +166,14 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
             pbar.update(1)
     
     problems = unique_problems
+    random.shuffle(problems)
     print(f"After deduplication: {len(problems)} unique problems")
     
     # 3. Split into train/dev/test with 100000/1000/1000 distribution
     total_problems = len(problems)
-    num_test = 1000
-    num_dev = 1000
-    num_train = min(100000, total_problems - num_test - num_dev)
+    num_test = 3000
+    num_dev = 3000
+    num_train = total_problems - num_test - num_dev
     
     test_problems = problems[:num_test]
     dev_problems = problems[num_test:num_test+num_dev]
@@ -183,13 +183,18 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
     
     # 4. Further split train into 10 categories (train_0 to train_9)
     train_splits = []
-    split_size = len(train_problems) // 10
-    for i in range(10):
+    split_size = 3000
+    i = 0
+    while True:
         start_idx = i * split_size
         end_idx = min((i + 1) * split_size, len(train_problems))
-        train_splits.append(train_problems[start_idx:end_idx])
+        if start_idx < end_idx:
+            train_splits.append(train_problems[start_idx:end_idx])
+        else:
+            break
+        i += 1
     
-    print(f"Split training data into 10 subsets of approximately {split_size} problems each")
+    print(f"Split training data into {len(train_splits)} subsets of {split_size} problems each")
     
     # 5. Extract questions for each split
     train_questions_splits = [[p['question'] for p in split] for split in train_splits]
@@ -203,7 +208,7 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
     # 7. Create policy and value data only for train_0
     print("Creating policy and value data for train_0...")
     train_policy_data, train_value_data = [], []
-    for p in train_splits[0]:
+    for p in train_splits[0] + train_splits[1] + train_splits[2] + train_splits[3]:
         q, sa = p['question'] + '\n', p['solution'] + p['answer']
         
         # Add positive example to policy data

@@ -4,9 +4,10 @@ import yaml
 import asyncio
 
 ########################################################    
-i = 4
-policy_port = 8050
-value_port = 8051
+i = 1
+k = 1
+policy_port = 8050 + 2*k
+value_port = 8050 + 2*k + 1
 ########################################################
 
 async def main():
@@ -17,7 +18,7 @@ async def main():
     generate_config['value_model'] += str(i)
     generate_config['policy_data_path'] += str(i)
     generate_config['value_data_path'] += str(i)
-    generate_config['train_questions_path'] += str(i) + ".txt"
+    generate_config['train_questions_path'] += str(4*i + k) + ".txt"
 
     generate_config['policy_port'] = policy_port
     generate_config['value_port'] = value_port

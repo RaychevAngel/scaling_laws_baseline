@@ -8,6 +8,16 @@ questions/
 /questions/
 **/questions/
 
+# Exclude visualizations directory
+visualizations/
+/visualizations/
+**/visualizations/
+
+# Exclude logs directory
+logs/
+/logs/
+**/logs/
+
 # OS-specific files
 .DS_Store
 Thumbs.db

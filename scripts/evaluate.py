@@ -4,9 +4,10 @@ import yaml
 import asyncio
 
 ########################################################
-i = 3
-policy_port = 8052
-value_port = 8053
+i = 1
+k = 3
+policy_port = 8050 + 2*k
+value_port = 8050 + 2*k + 1
 ########################################################
 
 async def main():
@@ -20,6 +21,7 @@ async def main():
     evaluate_config['policy_port'] = policy_port
     evaluate_config['value_port'] = value_port
     
+    evaluate_config['test_questions_path'] = "questions/train_4.txt"
     
     evaluate_config['temperature'] = 1.0
     evaluate_config['c_explore'] = 0.3

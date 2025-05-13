@@ -3,8 +3,8 @@ import os
 from train.value_trainer import ValueTrainer
 
 ########################################################
-i = 3
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+i = 0
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 ########################################################s
 
 def main():
@@ -16,9 +16,9 @@ def main():
     config_value['plot_path'] += str(i)
     config_value['hub_model_id'] += str(i+1)
 
-    config_value['learning_rate'] = 1e-5
+    config_value['learning_rate'] = 5e-6
     config_value['per_device_train_batch_size'] = 256
-    config_value['gradient_accumulation_steps'] = 4
+    config_value['gradient_accumulation_steps'] = 2
     config_value['logging_steps'] = 1
     
     value_trainer = ValueTrainer(config_value)

@@ -103,16 +103,21 @@ class RunMCTS_Generate(RunMCTS):
         )
     
     def export_data(self, data: Tuple[List, List]) -> None:
-        """Export processed policy and value data to files."""
+        """Export processed policy and value data to files. Appends to existing data."""
         policy_data, value_data = data
             
-        # Create directories and save datasets
         for path, data_list in [
             (self.config['policy_data_path'], policy_data),
             (self.config['value_data_path'], value_data)
         ]:
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            Dataset.from_list(data_list).save_to_disk(path)
+            existing_data = []
+            if os.path.exists(path):
+                try:
+                    existing_data = Dataset.load_from_disk(path).to_list()
+                except Exception as e:
+                    print(f"Error loading from {path}: {e}")
+            Dataset.from_list(existing_data + data_list).save_to_disk(path)
 
     async def _run_implementation(self):
         """Run the MCTS forest."""
