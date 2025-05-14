@@ -73,6 +73,7 @@ class ValueTrainer:
 
         self.data_collator = DataCollatorWithPadding(self.tokenizer, pad_to_multiple_of=8)
         self.temp_dir = tempfile.mkdtemp()
+        self.final_loss = None
 
     def _tokenize_dataset(self, dataset):
         def encode(batch):
@@ -116,33 +117,41 @@ class ValueTrainer:
         raw_dataset = load_from_disk(self.config["dataset_file"]).shuffle(seed=42)
         dataset = self._tokenize_dataset(raw_dataset)
 
-        callbacks = [
-            LossPlotCallback(self.config["plot_path"], "Value"),
-        ]
-
+        callback = LossPlotCallback(self.config["plot_path"], "Value")
+        
         trainer = Trainer(
             model=self.model,
             args=self._create_training_args(),
             train_dataset=dataset,
             data_collator=self.data_collator,
             tokenizer=self.tokenizer,
-            callbacks=callbacks,
+            callbacks=[callback],
         )
 
         trainer.args.train_dataset_size = len(dataset)
+        effective_batch = trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps
 
         print(f"Per device train batch size: {trainer.args.per_device_train_batch_size}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
         print(f"Gradient accumulation steps: {trainer.args.gradient_accumulation_steps}")
-        print(f"Effective batch size: {trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps}")
+        print(f"Effective batch size: {effective_batch}")
         print(f"Training dataset size: {trainer.args.train_dataset_size}")
-        print(f"Steps per epoch: {trainer.args.train_dataset_size // (trainer.args.per_device_train_batch_size * max(1, torch.cuda.device_count()) * trainer.args.gradient_accumulation_steps)}")
+        print(f"Steps per epoch: {trainer.args.train_dataset_size // effective_batch}")
 
         try:
             trainer.train()
             print("Training completed!")
         except KeyboardInterrupt:
             print("Training interrupted.")
+            
+        self.final_loss = callback.train_losses[-1] if callback.train_losses else None
+        
+        self.model.config.model_card = f"""
+Final Loss: {str(self.final_loss)}
+Batch Size: {effective_batch}
+Learning Rate: {self.config['learning_rate']}
+Dataset Size: {trainer.args.train_dataset_size}
+"""
 
         # Push the final model
         print(f"Pushing model to Hugging Face Hub: {self.config['hub_model_id']}")

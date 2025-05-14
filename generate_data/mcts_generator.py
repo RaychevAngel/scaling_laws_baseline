@@ -4,7 +4,9 @@ import asyncio
 from utils.mcts_base import MCTSNode, MCTSTree, MCTSForest, RunMCTS
 from datasets import Dataset, DatasetDict
 import os
-
+from pathlib import Path
+import shutil
+import time
 class MCTSTree_Generate(MCTSTree):
     """MCTS tree implementation for data generation."""
     
@@ -101,23 +103,38 @@ class RunMCTS_Generate(RunMCTS):
             c_explore=self.config['c_explore'],
             batch_size=self.config['batch_size']
         )
-    
+
     def export_data(self, data: Tuple[List, List]) -> None:
-        """Export processed policy and value data to files. Appends to existing data."""
-        policy_data, value_data = data
-            
-        for path, data_list in [
-            (self.config['policy_data_path'], policy_data),
-            (self.config['value_data_path'], value_data)
-        ]:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            existing_data = []
-            if os.path.exists(path):
+        """
+        1. Load existing directory (or empty)
+        2. Append new data
+        3. Overwrite target dir with retries
+        4. On final failure, write to a timestamped sibling dir
+        """
+        for key, idx in (("policy_data_path", 0), ("value_data_path", 1)):
+            p = Path(self.config[key]); p.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                old = Dataset.load_from_disk(p).to_list()
+            except:
+                old = []
+            comb = old + data[idx]
+
+            for attempt in range(1, 4):
                 try:
-                    existing_data = Dataset.load_from_disk(path).to_list()
+                    shutil.rmtree(p, ignore_errors=True)
+                    Dataset.from_list(comb).save_to_disk(str(p))
+                    print(f"[INFO] saved {p} (attempt {attempt})")
+                    break
                 except Exception as e:
-                    print(f"Error loading from {path}: {e}")
-            Dataset.from_list(existing_data + data_list).save_to_disk(path)
+                    print(f"[WARN] save#{attempt} for {p} failed: {e}")
+            else:
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                fb = p.parent / f"{p.name}_{ts}"
+                try:
+                    Dataset.from_list(comb).save_to_disk(str(fb))
+                    print(f"[INFO] fallback saved to {fb}")
+                except Exception as e:
+                    print(f"[ERROR] fallback save {fb} failed: {e}")
 
     async def _run_implementation(self):
         """Run the MCTS forest."""
