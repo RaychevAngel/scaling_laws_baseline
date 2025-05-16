@@ -17,7 +17,7 @@ class MCTSTree_Evaluate(MCTSTree):
         return node.value_estimate
         
     def _get_search_result(self):
-        """Track the favourite trajectory through the tree and record result."""
+        """Track the favourite trajectory through the tree and record result."""        
         current = self.root
         while current.has_children:
             current = current.favourite_child

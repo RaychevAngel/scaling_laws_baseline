@@ -4,13 +4,16 @@ import time
 import sys
 
 ########################################################
-i = 3
-k = 7
-value_port = 8050+2*k + 1
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+i = 7
+k = 13
 ########################################################
+iteration = i 
+value_port = 8050+2*k + 1
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+########################################################
+
 value_server = ValueServer(
-    value_model="AngelRaychev/0.5B-value-iteration_" + str(i),
+    value_model="AngelRaychev/0.5B-value-iteration_" + str(iteration),
     host="127.0.0.1",
     port=value_port,
     endpoint="/value-prediction",

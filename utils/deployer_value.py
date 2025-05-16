@@ -40,7 +40,7 @@ class ValueServer:
                 tensor_parallel_size=1,
                 disable_log_stats=True,
                 revision=self.revision,
-                gpu_memory_utilization=0.24
+                gpu_memory_utilization=0.47
                 )
             print("Value model loaded.")
             

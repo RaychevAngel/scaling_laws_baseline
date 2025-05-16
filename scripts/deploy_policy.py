@@ -4,13 +4,16 @@ import time
 import sys
 
 ########################################################
-i = 3
-k = 7
-policy_port = 8050+2*k
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+i = 7
+k = 13
 ########################################################
+iteration = i 
+policy_port = 8050+2*k
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+########################################################
+
 policy_server = PolicyServer(
-    policy_model="AngelRaychev/0.5B-policy-iteration_" + str(i),
+    policy_model="AngelRaychev/0.5B-policy-iteration_" + str(iteration),
     host="127.0.0.1",
     port=policy_port,
     endpoint="/policy-prediction",

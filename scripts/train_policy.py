@@ -3,8 +3,8 @@ import os
 from train.policy_trainer import PolicyTrainer
 
 ########################################################
-i = 2
-os.environ["CUDA_VISIBLE_DEVICES"] = "4" 
+i = 6
+os.environ["CUDA_VISIBLE_DEVICES"] = "6" 
 ########################################################s
 
 def main():
@@ -16,9 +16,9 @@ def main():
     config_policy['plot_path'] += str(i)
     config_policy['hub_model_id'] += str(i+1)
 
-    config_policy['learning_rate'] = 2e-5 
+    config_policy['learning_rate'] = 5e-6 
     config_policy['per_device_train_batch_size'] = 128
-    config_policy['gradient_accumulation_steps'] = 1
+    config_policy['gradient_accumulation_steps'] = 4
     config_policy['logging_steps'] = 1
 
     policy_trainer = PolicyTrainer(config_policy)

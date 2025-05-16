@@ -60,6 +60,10 @@ class MCTSForest_Generate(MCTSForest):
     def _process_result(self, result):
         """Process policy and value data from tree search"""
         new_policy_data, new_value_data = result
+        random.shuffle(new_policy_data)
+        random.shuffle(new_value_data)
+        new_policy_data = new_policy_data[:min(5, len(new_policy_data))]
+        new_value_data = new_value_data[:min(5, len(new_value_data))]
         self.policy_data.extend(new_policy_data)
         self.value_data.extend(new_value_data)
         

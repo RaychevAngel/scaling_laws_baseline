@@ -76,7 +76,9 @@ class MCTSNode:
             # Verify solution
             try:
                 result = eval(left_side)
-                return 1.0 if expr_nums == question_nums and abs(result - target) <= 1e-6 else 0.0
+                is_close = abs(result - target) < 1e-6
+                has_correct_nums = expr_nums == question_nums
+                return 1.0 if has_correct_nums and is_close else 0.0
             except:
                 return 0.0
         except Exception as e:
@@ -88,7 +90,7 @@ class MCTSNode:
         """Return child with highest visit count, breaking ties with Q value"""
         if not self.has_children:
             raise ValueError("Node has no children")
-        return max(self.children, key=lambda child: (child.visit_count, child.action_value))
+        return max(self.children, key=lambda child: child.action_value)
 
 class MCTSTree:
     """Base MCTS tree for exploring solutions"""
@@ -171,7 +173,8 @@ class MCTSTree:
             await asyncio.sleep(0)
         
         # Visualization is disabled by default
-        self.visualize_tree(enable=False)
+        self.visualize_tree(enable=True)
+        print(len(self.terminal_leaves))
         return self._get_search_result()
 
 
@@ -180,7 +183,7 @@ class MCTSTree:
             return
             
         try:
-            os.makedirs('visualizations', exist_ok=False)
+            os.makedirs('visualizations', exist_ok=True)
             q, nodes, values = [self.root], [], []
             while q:
                 node = q.pop(0)  # Use FIFO queue to process breadth-first

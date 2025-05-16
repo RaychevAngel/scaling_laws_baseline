@@ -4,8 +4,10 @@ import yaml
 import asyncio
 
 ########################################################    
-i = 3
-k = 7
+i = 7
+k = 0
+########################################################
+iteration = i 
 policy_port = 8050 + 2*k
 value_port = 8050 + 2*k + 1
 ########################################################
@@ -14,10 +16,10 @@ async def main():
     with open('generate_data/config_mcts_generator.yaml', 'r') as f:
         generate_config = yaml.safe_load(f)
 
-    generate_config['policy_model'] += str(i)
-    generate_config['value_model'] += str(i)
-    generate_config['policy_data_path'] += str(i)
-    generate_config['value_data_path'] += str(i)
+    generate_config['policy_model'] += str(iteration)
+    generate_config['value_model'] += str(iteration)
+    generate_config['policy_data_path'] += str(iteration)
+    generate_config['value_data_path'] += str(iteration)
     generate_config['train_questions_path'] += str(4*i + k%4) + ".txt"
 
     generate_config['policy_port'] = policy_port

@@ -33,7 +33,7 @@ class LossPlotCallback(TrainerCallback):
         self.log_count += 1
         
         # Skip the first 2 logs
-        if self.log_count < 10:
+        if self.log_count < 0:
             return
             
         if "loss" in logs:
