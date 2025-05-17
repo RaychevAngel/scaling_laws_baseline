@@ -14,6 +14,6 @@ for port in 0 1; do
     fi
 
     tmux new-session -d -s "eval_iter${iter}_port${port}" \
-      "python -m scripts.evaluate --iter ${iter} --gpu ${gpu} --port ${port} --be '${be}'"
+      "python -m scripts.evaluate --iter ${iter} --gpu ${gpu} --port ${port} --be '${be}' ; bash"
   done
 done
