@@ -9,7 +9,7 @@ from datetime import datetime
 class MCTSTree_Evaluate(MCTSTree):
     """MCTS tree implementation for evaluation."""
     
-    def __init__(self, question: str, max_expansions: int, c_explore: float, request_queue):
+    def __init__(self, question: str, max_expansions: List[int], c_explore: float, request_queue):
         super().__init__(question, max_expansions, c_explore, request_queue)
         
     def _handle_terminal_node(self, node: MCTSNode) -> float:
@@ -31,12 +31,12 @@ class MCTSForest_Evaluate(MCTSForest):
     """Forest of MCTS trees for evaluation."""
     
     def __init__(self, questions: List[str],
-                 max_expansions: int, c_explore: float, 
+                 max_expansions: List[int], c_explore: float, 
                  policy_value_fn: Callable, batch_size: int):
         super().__init__(questions, max_expansions, c_explore, 
                         batch_size, policy_value_fn)
         
-        self.results = []
+        self.results = {max_expansions: [] for max_expansions in self.max_expansions}
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a MCTS tree for evaluation."""
@@ -49,17 +49,25 @@ class MCTSForest_Evaluate(MCTSForest):
         
     def _process_result(self, result):
         """Process evaluation result from tree search"""
-        self.results.append(result)
+        for max_expansions in self.max_expansions:
+            self.results[max_expansions].append(result[max_expansions])
         
     def _print_additional_stats(self):
         """Print additional evaluation statistics"""
-        if self.results:
-            print(f"Current accuracy: {sum(self.results)/len(self.results):.4f}")
+        for max_expansions in self.max_expansions:
+            if self.results[max_expansions]:
+                accuracy = sum(self.results[max_expansions])/len(self.results[max_expansions])
+                print(f"Current accuracy for {max_expansions} expansions: {accuracy:.4f}")
+            else:
+                print(f"No results for {max_expansions} expansions")
 
     async def run_forest(self):
         """Run the forest and return accuracy."""
         await super().run_forest()
-        return sum(self.results) / len(self.results) if self.results else 0
+        accuracies = {}
+        for key in self.results:
+            accuracies[key] = sum(self.results[key])/len(self.results[key])
+        return accuracies
 
 class RunMCTS_Evaluate(RunMCTS):
     """Configuration class for MCTS evaluation."""
@@ -120,10 +128,13 @@ class RunMCTS_Evaluate(RunMCTS):
         """Run evaluation and return results."""
         monitor_task = asyncio.create_task(self._monitor_collection([self.forest_test]))
         try:
-            accuracy = await self.forest_test.run_forest()
-            self.export_evaluation_results(accuracy)
-            print(f"Overall Accuracy: {accuracy:.4f}")
-            return accuracy
+            accuracies = await self.forest_test.run_forest()
+            self.export_evaluation_results(0.0)
+            print("\n" + 20*"=" + "\n")
+            for (max_expansions, accuracy) in accuracies.items():
+                print(f"Accuracy for {max_expansions} expansions: {accuracy:.4f}")
+            print("\n" + 20*"=" + "\n")
+            return accuracies
         finally:
             monitor_task.cancel()
             try:

@@ -2,22 +2,27 @@ import os
 from utils.deployer_policy import PolicyServer
 import time
 import sys
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--iter", type=int, required=True)
+parser.add_argument("--gpu", type=int, required=True)
+parser.add_argument("--port", type=int, required=True)
+args = parser.parse_args()
 
 ########################################################
-i = 7
-k = 13
-########################################################
-iteration = i 
-policy_port = 8050+2*k
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+policy_model_checkpoint = args.iter
+policy_model_port = 8050 + 4*args.gpu + 2*args.port
 ########################################################
 
 policy_server = PolicyServer(
-    policy_model="AngelRaychev/0.5B-policy-iteration_" + str(iteration),
+    policy_model="AngelRaychev/0.5B-policy-iteration_" + str(policy_model_checkpoint),
+    revision=None,
     host="127.0.0.1",
-    port=policy_port,
+    port=policy_model_port,
     endpoint="/policy-prediction",
-    revision=None
+    gpu_memory_utilization=0.22
     )
 
 policy_server.start()

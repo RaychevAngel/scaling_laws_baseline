@@ -12,7 +12,7 @@ class PolicyRequest(BaseModel):
     temperature: float
 
 class PolicyServer:
-    def __init__(self, policy_model: str, host: str, port: int, endpoint: str, revision: str=None):
+    def __init__(self, policy_model: str, revision: str, host: str, port: int, endpoint: str, gpu_memory_utilization: float):
         self.policy_model = policy_model
         self.host = host
         self.port = port
@@ -21,6 +21,8 @@ class PolicyServer:
         self.setup_app()
         self.server_thread = None
         self.revision = revision
+        self.gpu_memory_utilization = gpu_memory_utilization
+        
     def setup_app(self):
         app = self.app
         
@@ -36,7 +38,7 @@ class PolicyServer:
                     tensor_parallel_size=1,
                     disable_log_stats=True,
                     revision=self.revision,
-                    gpu_memory_utilization=0.47
+                    gpu_memory_utilization=self.gpu_memory_utilization
                 )
                 print("Policy model loaded.")
             except Exception as e:

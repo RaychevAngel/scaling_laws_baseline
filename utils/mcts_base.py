@@ -94,7 +94,7 @@ class MCTSNode:
 
 class MCTSTree:
     """Base MCTS tree for exploring solutions"""
-    def __init__(self, question: str, max_expansions: int, c_explore: float, request_queue):
+    def __init__(self, question: str, max_expansions: List[int], c_explore: float, request_queue):
         self.root = MCTSNode(state="", parent=None, visit_count=0, action_value=0, value_estimate=0)
         self.question = question
         self.expansion_count = 0
@@ -153,29 +153,31 @@ class MCTSTree:
     async def search(self):
         """Common MCTS search implementation"""
         current = self.root
-        while self.expansion_count < self.max_expansions and self.non_terminal_leaves:
-            if current.has_children:
-                current = self.select_child(current)
-            elif current.is_terminal:
-                label = self._handle_terminal_node(current)
-                self.backpropagate(current, label, True)
-                current = self.root
-            elif not current.is_visited:
-                self.backpropagate(current, current.value_estimate, False)
-                current = self.root
-            else:
-                try:
-                    new_states = await self.get_action_values(current)
-                    self._handle_expansion(current, new_states)
-                except Exception as e:
-                    print(f"Expansion error at state '{current.state}': {e}")
-                    break
-            await asyncio.sleep(0)
-        
-        # Visualization is disabled by default
-        self.visualize_tree(enable=True)
-        print(len(self.terminal_leaves))
-        return self._get_search_result()
+        results = {}
+        for max_expansions in sorted(self.max_expansions):
+            while self.expansion_count < max_expansions and self.non_terminal_leaves:
+                if current.has_children:
+                    current = self.select_child(current)
+                elif current.is_terminal:
+                    label = self._handle_terminal_node(current)
+                    self.backpropagate(current, label, True)
+                    current = self.root
+                elif not current.is_visited:
+                    self.backpropagate(current, current.value_estimate, False)
+                    current = self.root
+                else:
+                    try:
+                        new_states = await self.get_action_values(current)
+                        self._handle_expansion(current, new_states)
+                    except Exception as e:
+                        print(f"Expansion error at state '{current.state}': {e}")
+                        break
+                await asyncio.sleep(0)
+            
+            # Visualization is disabled by default
+            self.visualize_tree(enable=False)
+            results[max_expansions] = self._get_search_result()
+        return results
 
 
     def visualize_tree(self, enable=False):
@@ -219,7 +221,7 @@ class MCTSTree:
 
 class MCTSForest:
     """Forest of MCTS trees for parallel exploration"""
-    def __init__(self, questions: List[str], max_expansions: int, 
+    def __init__(self, questions: List[str], max_expansions: List[int], 
                  c_explore: float, batch_size: int,
                  policy_value_fn: Callable[[List[Tuple[str, str]]], List[List[Tuple[str, float]]]]):
         self.questions = questions
