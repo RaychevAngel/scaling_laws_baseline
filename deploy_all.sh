@@ -1,4 +1,6 @@
 #deploy_all.sh
+set -x
+set -e
 
 sleep_seconds=30
 
