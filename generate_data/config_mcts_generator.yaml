@@ -9,7 +9,7 @@ value_model: "AngelRaychev/0.5B-value-iteration_"
 
 # MCTS parameters
 branch_factor: 14
-max_expansions: 37
+max_expansions: [37]
 temperature: 1.0
 c_explore: 0.3
 batch_size: 30
@@ -20,6 +20,7 @@ train_questions_path: "questions/train_"
 # Output paths for generated data
 policy_data_path: "data/policy/iteration_"
 value_data_path: "data/value/iteration_"
+sos_data_path:  "data/sos/iteration_0"
 
 # Runtime configuration
 stats_interval: 30 

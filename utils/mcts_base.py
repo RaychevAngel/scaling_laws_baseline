@@ -103,6 +103,7 @@ class MCTSTree:
         self.request_queue = request_queue
         self.non_terminal_leaves = [self.root]
         self.terminal_leaves = []
+        self.full_trajectory = ""
 
     async def get_action_values(self, node: MCTSNode) -> list[tuple[str, float]]:
         """Get action-value pairs from policy-value network"""
@@ -145,7 +146,7 @@ class MCTSTree:
                 else:
                     self.non_terminal_leaves.append(child)
             self.expansion_count += 1
-            
+
     def _get_search_result(self):
         """Get result of search (to be implemented by subclasses)"""
         raise NotImplementedError("Subclasses must implement _get_search_result method")
@@ -159,10 +160,16 @@ class MCTSTree:
                 if current.has_children:
                     current = self.select_child(current)
                 elif current.is_terminal:
+                    if not current.is_visited:
+                        action = current.state.removeprefix(current.parent.state)
+                        self.full_trajectory += action
                     label = self._handle_terminal_node(current)
                     self.backpropagate(current, label, True)
                     current = self.root
                 elif not current.is_visited:
+                    if current.parent:
+                        action = current.state.removeprefix(current.parent.state)
+                        self.full_trajectory += action
                     self.backpropagate(current, current.value_estimate, False)
                     current = self.root
                 else:

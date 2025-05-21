@@ -2,31 +2,38 @@ from utils.policy_value import PolicyValueFunction
 from generate_data.mcts_generator import RunMCTS_Generate
 import yaml
 import asyncio
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--iter", type=int, required=True)
+parser.add_argument("--gpu", type=int, required=True)
+parser.add_argument("--port", type=int, required=True)
+parser.add_argument("--b", type=str, required=True)
+parser.add_argument("--e", type=int, required=True)
+args = parser.parse_args()
+
 
 ########################################################    
-i = 7
-k = 0
-########################################################
-iteration = i 
-policy_port = 8050 + 2*k
-value_port = 8050 + 2*k + 1
+checkpoint = args.iter 
+policy_port = 8050 + 4*args.gpu + 2*args.port
+value_port = 8050 + 4*args.gpu + 2*args.port + 1
 ########################################################
 
 async def main():
     with open('generate_data/config_mcts_generator.yaml', 'r') as f:
         generate_config = yaml.safe_load(f)
 
-    generate_config['policy_model'] += str(iteration)
-    generate_config['value_model'] += str(iteration)
-    generate_config['policy_data_path'] += str(iteration)
-    generate_config['value_data_path'] += str(iteration)
-    generate_config['train_questions_path'] += str(4*i + k%4) + ".txt"
+    generate_config['policy_model'] += str(checkpoint)
+    generate_config['value_model'] += str(checkpoint)
+    generate_config['policy_data_path'] += str(checkpoint)
+    generate_config['value_data_path'] += str(checkpoint)
+    generate_config['train_questions_path'] += str(2 + args.port) + ".txt"
 
     generate_config['policy_port'] = policy_port
     generate_config['value_port'] = value_port
     
-    generate_config['branch_factor'] = 5
-    generate_config['max_expansions'] = 26
+    generate_config['branch_factor'] = int(args.b)
+    generate_config['max_expansions'] = [int(args.e)]
     generate_config['temperature'] = 1.0
     generate_config['c_explore'] = 0.3
 

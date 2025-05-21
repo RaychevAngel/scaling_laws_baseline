@@ -14,6 +14,7 @@ class MCTSTree_Generate(MCTSTree):
         super().__init__(question, max_expansions, c_explore, request_queue)
         self.policy_data = []
         self.value_data = []
+        self.sos_data = []
 
     def _handle_terminal_node(self, node: MCTSNode) -> float:
         """Handle terminal node by evaluating its state"""
@@ -21,6 +22,8 @@ class MCTSTree_Generate(MCTSTree):
         
     def _get_search_result(self):
         """Get generation results by collecting data from terminal nodes"""
+        solution_leaves = []
+        random.shuffle(self.terminal_leaves)
         for leaf in self.terminal_leaves:
             label = leaf.evaluate_terminal_state(self.question)
             if label == 1:
@@ -28,6 +31,7 @@ class MCTSTree_Generate(MCTSTree):
                     "prompt": self.question,
                     "completion": leaf.state
                 })
+                solution_leaves.append(leaf)
             soft_values = []
             current = leaf
             while current:
@@ -40,7 +44,18 @@ class MCTSTree_Generate(MCTSTree):
                     "text": self.question + leaf.state,
                     "labels": soft_values[::-1]
                 })
-        return self.policy_data, self.value_data
+        if solution_leaves:
+            solution = solution_leaves[0]
+            answer = solution.state.removeprefix(solution.parent.state)
+            self.sos_data.append({
+                "prompt": self.question,
+                "completion": self.full_trajectory
+            })
+            self.sos_data.append({
+                "prompt": self.question + self.full_trajectory + "Final Answer:\n",
+                "completion": answer
+            })
+        return self.policy_data, self.value_data, self.sos_data
 
 class MCTSForest_Generate(MCTSForest):
     """Forest of MCTS trees for data generation."""
@@ -50,7 +65,7 @@ class MCTSForest_Generate(MCTSForest):
                  policy_value_fn: Callable, batch_size: int):
         super().__init__(questions, max_expansions, c_explore, 
                         batch_size, policy_value_fn)
-        self.policy_data, self.value_data = [], []
+        self.policy_data, self.value_data, self.sos_data = [], [], []
 
     def _create_tree(self, question: str) -> MCTSTree:
         """Create a new MCTS tree for data generation."""
@@ -59,23 +74,25 @@ class MCTSForest_Generate(MCTSForest):
         
     def _process_result(self, result):
         """Process policy and value data from tree search"""
-        new_policy_data, new_value_data = result
+        new_policy_data, new_value_data, new_sos_data = result[self.max_expansions[0]] 
         random.shuffle(new_policy_data)
         random.shuffle(new_value_data)
         new_policy_data = new_policy_data[:min(5, len(new_policy_data))]
         new_value_data = new_value_data[:min(5, len(new_value_data))]
         self.policy_data.extend(new_policy_data)
         self.value_data.extend(new_value_data)
+        self.sos_data.extend(new_sos_data)
         
     def _print_additional_stats(self):
         """Print additional statistics"""
         print(f"Value examples collected: {len(self.value_data)}")
         print(f"Policy examples collected: {len(self.policy_data)}")
+        print(f"SoS examples collected: {len(self.sos_data)}")
 
     async def run_forest(self):
         """Run the MCTS forest with parallel tree processing."""
         await super().run_forest()
-        return self.policy_data, self.value_data
+        return self.policy_data, self.value_data, self.sos_data
 
 class RunMCTS_Generate(RunMCTS):
     """Configuration class for MCTS data generation."""
@@ -108,14 +125,14 @@ class RunMCTS_Generate(RunMCTS):
             batch_size=self.config['batch_size']
         )
 
-    def export_data(self, data: Tuple[List, List]) -> None:
+    def export_data(self, data: Tuple[List, List, List]) -> None:
         """
         1. Load existing directory (or empty)
         2. Append new data
         3. Overwrite target dir with retries
         4. On final failure, write to a timestamped sibling dir
         """
-        for key, idx in (("policy_data_path", 0), ("value_data_path", 1)):
+        for key, idx in (("policy_data_path", 0), ("value_data_path", 1), ("sos_data_path", 2)):
             p = Path(self.config[key]); p.parent.mkdir(parents=True, exist_ok=True)
             try:
                 old = Dataset.load_from_disk(p).to_list()

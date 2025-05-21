@@ -9,7 +9,7 @@ value_model: "AngelRaychev/0.5B-value-iteration_"    # Base name for value model
 
 # MCTS parameters
 branch_factor: 3
-max_expansions: 20
+max_expansions: [20]
 temperature: 1.0
 c_explore: 0.3
 batch_size: 50
