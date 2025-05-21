@@ -21,6 +21,9 @@ data = {
     (21, 42): [10.77, 17.43, 40.67, 41.90, 42.93, 43.07, 43.10],
     (21, 63): [15.83, 21.10, 41.40, 42.03, 42.90, 42.97, 43.23],
     (21, 84): [18.63, 23.17, 41.33, 41.87, 42.90, 42.90, 43.10],
+    (34, 68): [11.67, 17.27, 42.73, 43.43, 44.60, 44.00, 44.86],
+    (34, 102): [16.57, 20.13, 42.63, 43.13, 44.27, 43.83, 44.42],
+    (34, 136): [18.80, 21.97, 42.40, 43.20, 44.10, 43.77, 44.38],
 }
 
 # Prepare x and y for each curve, removing points where a later x has a higher y (make curves non-decreasing)
@@ -41,10 +44,7 @@ for y_curve in zip(*data.values()):
     filtered_ys.append(filtered_y)
 
 for i, (x, y) in enumerate(zip(filtered_xs, filtered_ys)):
-    if i == 0 or i == 1:
-        continue
-    else:
-        plt.plot(x, y, marker='o', label=f'Checkpoint {i+1}')
+    plt.plot(x, y, marker='o', label=f'Checkpoint {i+1}')
     
 
 plt.xlabel('tokens')
@@ -52,5 +52,5 @@ plt.ylabel('Accuracy %')
 plt.xscale('log')
 plt.legend(fontsize='small')
 plt.title('Accuracy vs. Tokens')
-plt.savefig('plot*.png')
+plt.savefig('plot.png')
 plt.show()
