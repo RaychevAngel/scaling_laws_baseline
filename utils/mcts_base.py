@@ -58,7 +58,7 @@ class MCTSNode:
             if not answer_line:
                 return 0.0
                 
-            last_line = answer_line.removeprefix("The answer is:").removesuffix(".")
+            last_line = answer_line.removeprefix("The answer is: ").removesuffix(".")
             
             equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(-?\d+)', last_line)
             if not equation_match:
@@ -103,7 +103,8 @@ class MCTSTree:
         self.request_queue = request_queue
         self.non_terminal_leaves = [self.root]
         self.terminal_leaves = []
-        self.full_trajectory = ""
+        self._nodes = []
+        self._idx = {}
 
     async def get_action_values(self, node: MCTSNode) -> list[tuple[str, float]]:
         """Get action-value pairs from policy-value network"""
@@ -134,18 +135,42 @@ class MCTSTree:
     def _handle_terminal_node(self, node: MCTSNode) -> float:
         """Handle terminal node - return label value (to be implemented by subclasses)"""
         raise NotImplementedError("Subclasses must implement _handle_terminal_node method")
-        
+    
+    def _extract_action(self, node: MCTSNode) -> str:
+        if node.is_terminal:
+            action = node.state.removeprefix(node.parent.state + "The answer is: ").replace(".", "")
+            if len(action.split("=")) != 2 or "left" in action:
+                return ""
+            return action
+        elif node.parent:
+            action = node.state.removeprefix(node.parent.state)
+            action = action.replace("(", "").replace(")", "").replace("left", "Left")
+            if len(action.split("=")) != 2 or action.count("Left") != 1:
+                return ""
+            return action
+        else:
+            return ""
+
     def _handle_expansion(self, node: MCTSNode, new_states: list[tuple[str, float]]):
         """Handle node expansion (can be overridden by subclasses for specialized behavior)"""
-        if new_states:
-            self.non_terminal_leaves.remove(node)
-            node.add_children(new_states)
-            for child in node.children:
+        self.expansion_count += 1
+        node.add_children(new_states)
+        
+        # Create a new list of valid children
+        valid_children = []
+        for child in node.children:
+            if self._extract_action(child) != "":
+                valid_children.append(child)
                 if child.is_terminal:
                     self.terminal_leaves.append(child)
                 else:
                     self.non_terminal_leaves.append(child)
-            self.expansion_count += 1
+        
+        # Replace the children list with valid children
+        node.children = valid_children
+
+        if node.children:
+            self.non_terminal_leaves.remove(node)
 
     def _get_search_result(self):
         """Get result of search (to be implemented by subclasses)"""
@@ -157,19 +182,17 @@ class MCTSTree:
         results = {}
         for max_expansions in sorted(self.max_expansions):
             while self.expansion_count < max_expansions and self.non_terminal_leaves:
+                if not current.is_visited:
+                    self._nodes.append(current)
+                    self._idx[current] = len(self._nodes) - 1
+                
                 if current.has_children:
                     current = self.select_child(current)
                 elif current.is_terminal:
-                    if not current.is_visited:
-                        action = current.state.removeprefix(current.parent.state)
-                        self.full_trajectory += action
                     label = self._handle_terminal_node(current)
                     self.backpropagate(current, label, True)
                     current = self.root
                 elif not current.is_visited:
-                    if current.parent:
-                        action = current.state.removeprefix(current.parent.state)
-                        self.full_trajectory += action
                     self.backpropagate(current, current.value_estimate, False)
                     current = self.root
                 else:

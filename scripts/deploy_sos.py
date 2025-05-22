@@ -1,5 +1,5 @@
 import os
-from utils.deployer_policy import PolicyServer
+from utils.deployer_sos import SosServer
 import time
 import sys
 import argparse
@@ -13,15 +13,15 @@ args = parser.parse_args()
 ########################################################
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 sos_model_checkpoint = args.iter
-sos_model_port = 8050 + 4*args.gpu + 2*args.port
+sos_model_port = 8050 + 4*args.gpu + args.port
 ########################################################
 
-sos_server = PolicyServer(
-    policy_model="AngelRaychev/0.5B-sos-iteration_" + str(sos_model_checkpoint),
+sos_server = SosServer(
+    sos_model="AngelRaychev/0.5B-sos-iteration_" + str(sos_model_checkpoint),
     revision=None,
     host="127.0.0.1",
     port=sos_model_port,
-    endpoint="/policy-prediction",
+    endpoint="/sos-prediction",
     gpu_memory_utilization=0.22
     )
 

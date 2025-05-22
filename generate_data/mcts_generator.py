@@ -5,8 +5,10 @@ from utils.mcts_base import MCTSNode, MCTSTree, MCTSForest, RunMCTS
 from datasets import Dataset, DatasetDict
 import os
 from pathlib import Path
-import shutil
+import shutil   
 import time
+import re
+
 class MCTSTree_Generate(MCTSTree):
     """MCTS tree implementation for data generation."""
     
@@ -14,16 +16,41 @@ class MCTSTree_Generate(MCTSTree):
         super().__init__(question, max_expansions, c_explore, request_queue)
         self.policy_data = []
         self.value_data = []
-        self.sos_data = []
-
+        self.sos_data = None
+        self.target = re.search(r'make (-?\d+)', self.question).group(1)
     def _handle_terminal_node(self, node: MCTSNode) -> float:
         """Handle terminal node by evaluating its state"""
         return node.evaluate_terminal_state(self.question)
-        
+
+    def _extract_full_trajectory(self) -> str:
+        """Extract the full trajectory from the terminal nodes"""
+        full_trajectory = ""
+        for node in self._nodes:
+            if node.is_terminal:
+                ancestor_list = []
+                current = node
+                while current:
+                    ancestor_list.append(self._idx[current])
+                    current = current.parent
+                
+                for ancestor in ancestor_list:
+                    if ancestor != 0:
+                        full_trajectory += f"N{ancestor}->"
+                    else:
+                        full_trajectory += f"Q | " + self._extract_action(node)
+            elif node.parent:
+                parent_idx = self._idx[node.parent]
+                node_idx = self._idx[node]
+                action = self._extract_action(node)
+                if parent_idx == 0:
+                    full_trajectory += f"N{node_idx}->Q | " + action
+                else:
+                    full_trajectory += f"N{node_idx}->N{parent_idx} | " + action
+        return full_trajectory
+
     def _get_search_result(self):
         """Get generation results by collecting data from terminal nodes"""
         solution_leaves = []
-        random.shuffle(self.terminal_leaves)
         for leaf in self.terminal_leaves:
             label = leaf.evaluate_terminal_state(self.question)
             if label == 1:
@@ -46,15 +73,13 @@ class MCTSTree_Generate(MCTSTree):
                 })
         if solution_leaves:
             solution = solution_leaves[0]
-            answer = solution.state.removeprefix(solution.parent.state)
-            self.sos_data.append({
-                "prompt": self.question,
-                "completion": self.full_trajectory
-            })
-            self.sos_data.append({
-                "prompt": self.question + self.full_trajectory + "Final Answer:\n",
-                "completion": answer
-            })
+            answer = self._extract_action(solution)
+            self.sos_data = {
+                "prompt": "Q | " + self.question,
+                "completion": "<START_THOUGHT>\n" + self._extract_full_trajectory() + "<END_THOUGHT>\n<START_ANSWER>\n" + answer + "<END_ANSWER>"
+            }
+            #if self.sos_data:
+            #    print(self.sos_data['prompt'] + self.sos_data['completion'] + "\n")
         return self.policy_data, self.value_data, self.sos_data
 
 class MCTSForest_Generate(MCTSForest):
@@ -81,8 +106,9 @@ class MCTSForest_Generate(MCTSForest):
         new_value_data = new_value_data[:min(5, len(new_value_data))]
         self.policy_data.extend(new_policy_data)
         self.value_data.extend(new_value_data)
-        self.sos_data.extend(new_sos_data)
-        
+        if new_sos_data is not None:
+            self.sos_data.append(new_sos_data)
+
     def _print_additional_stats(self):
         """Print additional statistics"""
         print(f"Value examples collected: {len(self.value_data)}")

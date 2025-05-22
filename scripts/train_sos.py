@@ -22,7 +22,7 @@ def main():
     config_sos['plot_path'] += str(checkpoint)
     config_sos['hub_model_id'] += str(checkpoint+1)
 
-    config_sos['learning_rate'] = 1e-5 
+    config_sos['learning_rate'] = 5e-5 
     config_sos['per_device_train_batch_size'] = 16
     config_sos['gradient_accumulation_steps'] = 4
     config_sos['logging_steps'] = 1
