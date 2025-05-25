@@ -50,14 +50,17 @@ class SosServer:
                 raise HTTPException(status_code=500, detail="Model not initialized")
             
             # Get policy predictions
-            texts = [q + "<THOUGHT>" for q in request.questions]
-            sos_response = self._predict_sos(
+            texts = [q + "<START_THOUGHT>\nN1->Q | " for q in request.questions]
+            completions, tokens_usage = self._predict_sos(
                 app.state.sos_llm, 
                 texts, 
                 request.temperature
             )
             
-            return {"results": sos_response}
+            return {
+                "completions": completions,
+                "tokens_usage": tokens_usage
+            }
     
     def _predict_sos(self, llm, texts, temperature):
         """Generate sos predictions using beam search"""
@@ -70,8 +73,12 @@ class SosServer:
             ignore_eos=False
         )
         generations = llm.generate(texts, sampling_params, use_tqdm=False)
-        results = [generation.outputs[0].text for generation in generations]
-        return results
+        completions = []
+        tokens_usage = []
+        for generation in generations:
+            completions.append(generation.outputs[0].text)
+            tokens_usage.append(len(generation.outputs[0].token_ids))
+        return completions, tokens_usage
     
     def start(self):
         """Start the server in a background thread"""

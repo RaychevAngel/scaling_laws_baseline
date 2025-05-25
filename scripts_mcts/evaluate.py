@@ -35,6 +35,7 @@ async def main():
     
     evaluate_config['test_questions_path'] = "questions/dev.txt"
     evaluate_config['stats_interval'] = 200
+    evaluate_config['c_explore'] = 0.3
 
     forward_passes = 300
     

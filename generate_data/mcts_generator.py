@@ -79,7 +79,7 @@ class MCTSTree_Generate(MCTSTree):
                 "completion": "<START_THOUGHT>\n" + self._extract_full_trajectory() + "<END_THOUGHT>\n<START_ANSWER>\n" + answer + "<END_ANSWER>"
             }
             #if self.sos_data:
-            #    print(self.sos_data['prompt'] + self.sos_data['completion'] + "\n")
+                #print(self.sos_data['prompt'] + self.sos_data['completion'] + "\n")
         return self.policy_data, self.value_data, self.sos_data
 
 class MCTSForest_Generate(MCTSForest):
