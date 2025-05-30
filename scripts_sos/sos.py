@@ -96,7 +96,7 @@ def plot_tokens_usage(stats: Dict):
     ax2.set_xscale('log')
     
     plt.tight_layout()
-    save_path = Path(f"logs/evaluation/sos/iterations_{args.iter}_{args.mode}.png")
+    save_path = Path(f"logs/evaluation/sos/iterations_{args.iter}_{args.mode}_gpu{args.gpu}_port{args.port}.png")
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path)
     plt.close()
@@ -109,8 +109,8 @@ def main():
     random.shuffle(questions)
     
     stats = {"correct": 0, "incorrect": 0, "correct_tokens_usage": [], "incorrect_tokens_usage": [], "collected": []}
-    batch_size = 300
-    attemps = 10 if args.mode == "gen" else 10
+    batch_size = 50
+    attemps = 10 if args.mode == "gen" else 5
     
     for j in range(attemps):
         for i in range(0, len(questions), batch_size):

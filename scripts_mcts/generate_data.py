@@ -27,7 +27,8 @@ async def main():
     generate_config['value_model'] += str(checkpoint)
     generate_config['policy_data_path'] += str(checkpoint)
     generate_config['value_data_path'] += str(checkpoint)
-    generate_config['train_questions_path'] += str(4*checkpoint + args.port) + ".txt"
+    generate_config['sos_data_path'] += f"_b{args.b}_e{args.e}"
+    generate_config['train_questions_path'] += str(2 + args.port) + ".txt"
 
     generate_config['policy_port'] = policy_port
     generate_config['value_port'] = value_port

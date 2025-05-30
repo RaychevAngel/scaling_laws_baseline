@@ -11,7 +11,7 @@ class SosRequest(BaseModel):
     temperature: float
 
 class SosServer:
-    def __init__(self, sos_model: str, revision: str, host: str, port: int, endpoint: str, gpu_memory_utilization: float):
+    def __init__(self, sos_model: str, revision: str, host: str, port: int, endpoint: str, gpu_memory_utilization: float, max_tokens: int):
         self.sos_model = sos_model
         self.host = host
         self.port = port
@@ -21,7 +21,7 @@ class SosServer:
         self.server_thread = None
         self.revision = revision
         self.gpu_memory_utilization = gpu_memory_utilization
-        
+        self.max_tokens = max_tokens if max_tokens is not None else 1000
     def setup_app(self):
         app = self.app
         
@@ -68,7 +68,7 @@ class SosServer:
         sampling_params = SamplingParams(
             n=1,
             temperature=temperature,
-            max_tokens=1000,  
+            max_tokens=self.max_tokens,  
             stop=["<END_ANSWER>"],
             ignore_eos=False
         )
