@@ -56,9 +56,9 @@ def process_calculation(numbers, operations, pattern, min_value = 1, max_value =
                 eval(f"(({numbers[0]}{operations[0]}{numbers[1]}){operations[1]}{numbers[2]}){operations[2]}{numbers[3]}")
             ]
             solution = [
-                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} (left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))})\n",
-                f"{int(results[0])}{operations[1]}{numbers[2]}={int(results[1])} (left: {', '.join(map(str, sorted([int(results[1]), numbers[3]])))})\n",
-                f"{int(results[1])}{operations[2]}{numbers[3]}={int(results[2])} (left: {int(results[2])})\n"
+                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} Left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))}\n",
+                f"{int(results[0])}{operations[1]}{numbers[2]}={int(results[1])} Left: {', '.join(map(str, sorted([int(results[1]), numbers[3]])))}\n",
+                f"{int(results[1])}{operations[2]}{numbers[3]}={int(results[2])} Left: {int(results[2])}\n"
             ]
             expr = f"(({numbers[0]}{operations[0]}{numbers[1]}){operations[1]}{numbers[2]}){operations[2]}{numbers[3]}"
         else:  # (a op1 b) op3 (c op2 d)
@@ -68,9 +68,9 @@ def process_calculation(numbers, operations, pattern, min_value = 1, max_value =
                 eval(f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})")
             ]
             solution = [
-                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} (left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))})\n",
-                f"{numbers[2]}{operations[1]}{numbers[3]}={int(results[1])} (left: {', '.join(map(str, sorted([int(results[0]), int(results[1])])))})\n",
-                f"{int(results[0])}{operations[2]}{int(results[1])}={int(results[2])} (left: {int(results[2])})\n"
+                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} Left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))}\n",
+                f"{numbers[2]}{operations[1]}{numbers[3]}={int(results[1])} Left: {', '.join(map(str, sorted([int(results[0]), int(results[1])])))}\n",
+                f"{int(results[0])}{operations[2]}{int(results[1])}={int(results[2])} Left: {int(results[2])}\n"
             ]
             expr = f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})"
         
@@ -83,7 +83,7 @@ def process_calculation(numbers, operations, pattern, min_value = 1, max_value =
                 'target': int(results[2]),
                 'question': f"Use {', '.join(map(str, sorted(numbers)))} to make {int(results[2])}.",
                 'solution': ''.join(solution),
-                'answer': f"The answer is: {remove_unnecessary_parentheses(expr)}= {int(results[2])}.\n"
+                'answer': f"{remove_unnecessary_parentheses(expr)}={int(results[2])}\n"
             }
         return None
     except:

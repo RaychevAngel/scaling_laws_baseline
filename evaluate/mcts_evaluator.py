@@ -23,6 +23,7 @@ class MCTSTree_Evaluate(MCTSTree):
             current = current.favourite_child
         # Check if the final node is actually terminal before evaluating
         if current.is_terminal:
+            #print(self.question + current.state + str(current.evaluate_terminal_state(self.question))+"\n")
             return int(current.evaluate_terminal_state(self.question))
         else:
             return 0

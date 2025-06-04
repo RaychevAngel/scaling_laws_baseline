@@ -1,7 +1,7 @@
 # Model and dataset configuration
-model_name: AngelRaychev/0.5B-policy-iteration_
+model_name: AngelRaychev/1.5B-policy-iteration_
 revision: None
-hub_model_id: AngelRaychev/0.5B-policy-iteration_
+hub_model_id: AngelRaychev/1.5B-policy-iteration_
 dataset_file: data/policy/iteration_
 plot_path: logs/training/policy/iteration_
 device: cuda

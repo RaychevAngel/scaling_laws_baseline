@@ -91,7 +91,7 @@ class ValueTrainer:
 
             per_device_train_batch_size=int(self.config["per_device_train_batch_size"]),
             gradient_accumulation_steps=int(self.config["gradient_accumulation_steps"]),
-            num_train_epochs=1,
+            num_train_epochs=int(self.config["num_train_epochs"]),
             learning_rate=float(self.config["learning_rate"]),
             lr_scheduler_type=self.config["lr_scheduler_type"],
 

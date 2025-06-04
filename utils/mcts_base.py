@@ -20,7 +20,7 @@ class MCTSNode:
         self.action_value = action_value  # Q
         self.value_estimate = value_estimate  # V
         self.labels = []
-        self.is_terminal = "The answer is:" in self.state
+        self.is_terminal = self.state.count("\n") == 4
 
     @property
     def is_visited(self) -> bool: return self.visit_count > 0
@@ -34,56 +34,36 @@ class MCTSNode:
                              for state, value in state_values])
 
     def evaluate_terminal_state(self, question: str) -> float:
-        """Evaluate if terminal state solves the arithmetic problem"""
+        """Return 1.0 iff final line solves the ‘Use … to make …’ task, else 0.0."""
         if not self.is_terminal:
             raise ValueError("Evaluation called on non-terminal state")
+
+        import re, ast, operator as op
         try:
-            # Extract target and numbers from question
-            question_text = question.strip()
-            target_match = re.search(r'make (-?\d+)', question_text)
-            numbers_match = re.search(r'Use ([\d, ]+) to make', question_text)
-            if not target_match or not numbers_match:
-                return 0.0
-            
-            target = int(target_match.group(1))
-            question_nums = sorted([int(x.strip()) for x in numbers_match.group(1).split(',')])
-            
-            # Extract the line containing "The answer is:"
-            answer_line = None
-            for line in self.state.split('\n'):
-                if "The answer is:" in line:
-                    answer_line = line.strip()
-                    break
-            
-            if not answer_line:
-                return 0.0
-                
-            last_line = answer_line.removeprefix("The answer is: ").removesuffix(".")
-            
-            equation_match = re.search(r'([\d\s+\-*/()]+)\s*=\s*(-?\d+)', last_line)
-            if not equation_match:
-                return 0.0
-            
-            left_side = equation_match.group(1).strip()
-            right_side = int(equation_match.group(2))
-            
-            if right_side != target:
-                return 0.0
-            
-            # Extract all numbers used in the expression
-            expr_nums = sorted([int(n) for n in re.findall(r'\d+', left_side)])
-            
-            # Verify solution
-            try:
-                result = eval(left_side)
-                is_close = abs(result - target) < 1e-6
-                has_correct_nums = expr_nums == question_nums
-                return 1.0 if has_correct_nums and is_close else 0.0
-            except:
-                return 0.0
-        except Exception as e:
-            print(f"Error in evaluate_terminal_state: {e}")
+            # 1) target and given numbers
+            tgt  = int(re.search(r'\bmake\s+(-?\d+)\b', question).group(1))
+            qnum = sorted(map(int, re.search(r'Use\s+([\d, ]+)\s+to', question).group(1).split(',')))
+
+            # 2) candidate equation
+            eq   = self.state.strip().split('\n')[-1].strip()
+            if set(eq) - set('0123456789+-*/()= '):            return 0.0
+            left, right = map(str.strip, eq.split('=', 1)) if '=' in eq else (None, None)
+            if not left or int(right) != tgt:                  return 0.0
+            if sorted(abs(int(n)) for n in re.findall(r'-?\d+', left)) != qnum:
+                return 0.0  # treat -5 as using 5
+
+            # 3) safe evaluation
+            def eva(node):
+                if isinstance(node, ast.Num):     return node.n
+                if isinstance(node, ast.UnaryOp): return {ast.UAdd:+1, ast.USub:-1}[type(node.op)] * eva(node.operand)
+                if isinstance(node, ast.BinOp):   return {ast.Add:op.add, ast.Sub:op.sub,
+                                                        ast.Mult:op.mul, ast.Div:op.truediv,
+                                                        ast.Pow:op.pow}[type(node.op)](eva(node.left), eva(node.right))
+                raise ValueError
+            return 1.0 if abs(eva(ast.parse(left, mode='eval').body) - tgt) < 1e-6 else 0.0
+        except Exception:
             return 0.0
+
 
     @property
     def favourite_child(self) -> 'MCTSNode':
@@ -137,19 +117,17 @@ class MCTSTree:
         raise NotImplementedError("Subclasses must implement _handle_terminal_node method")
     
     def _extract_action(self, node: MCTSNode) -> str:
+        action = node.state.removeprefix(node.parent.state).strip()
+        if len(action.split("=")) != 2:
+            return ""
         if node.is_terminal:
-            action = node.state.removeprefix(node.parent.state + "The answer is: ").replace(".", "")
-            if len(action.split("=")) != 2 or "left" in action:
-                return ""
-            return action
-        elif node.parent:
-            action = node.state.removeprefix(node.parent.state)
-            action = action.replace("(", "").replace(")", "").replace("left", "Left")
-            if len(action.split("=")) != 2 or action.count("Left") != 1:
+            if "Left" in action:
                 return ""
             return action
         else:
-            return ""
+            if action.count("Left") != 1:
+                return ""
+            return action
 
     def _handle_expansion(self, node: MCTSNode, new_states: list[tuple[str, float]]):
         """Handle node expansion (can be overridden by subclasses for specialized behavior)"""
@@ -181,12 +159,13 @@ class MCTSTree:
         current = self.root
         results = {}
         for max_expansions in sorted(self.max_expansions):
-            while self.expansion_count < max_expansions and self.non_terminal_leaves:
+            while self.expansion_count <= max_expansions and self.non_terminal_leaves:
                 if not current.is_visited:
                     self._nodes.append(current)
                     self._idx[current] = len(self._nodes) - 1
                 
                 if current.has_children:
+                    #print(current.state)
                     current = self.select_child(current)
                 elif current.is_terminal:
                     label = self._handle_terminal_node(current)
@@ -202,8 +181,16 @@ class MCTSTree:
                     except Exception as e:
                         print(f"Expansion error at state '{current.state}': {e}")
                         break
+                #if current.state.count("\n") == 3:
+                    #print(current.state)
+                    #print(len(current.children))
+                    #print(self.expansion_count)
+                    #print(max_expansions)
+                    #print(len(self.non_terminal_leaves))
                 await asyncio.sleep(0)
-            
+                
+            #print({'current': current.state, 'expansion_count': self.expansion_count})
+            #print(current.children[0].state)
             # Visualization is disabled by default
             self.visualize_tree(enable=False)
             results[max_expansions] = self._get_search_result()

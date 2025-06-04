@@ -4,8 +4,8 @@ policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
 value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
 # Model configuration
-policy_model: "AngelRaychev/0.5B-policy-iteration_"
-value_model: "AngelRaychev/0.5B-value-iteration_"
+policy_model: "AngelRaychev/1.5B-policy-iteration_"
+value_model: "AngelRaychev/1.5B-value-iteration_"
 
 # MCTS parameters
 branch_factor: 14

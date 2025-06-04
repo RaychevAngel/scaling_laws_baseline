@@ -13,10 +13,6 @@ class PolicyValueFunction:
             return []
             
         try:
-            for i, (q,s) in enumerate(qs):
-                if s.count("\n") == 3:
-                    qs[i] = (q, s + "The answer is: ")
-
             policy_resp = requests.post(
                 url=f"http://{self.config['host']}:{self.config['policy_port']}{self.config['policy_endpoint']}",
                 json={
