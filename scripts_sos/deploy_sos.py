@@ -30,7 +30,7 @@ sos_server = SosServer(
     host="127.0.0.1",
     port=sos_model_port,
     endpoint="/sos-prediction",
-    gpu_memory_utilization=0.30,
+    gpu_memory_utilization=0.22,
     max_tokens=args.tokens
     )
 

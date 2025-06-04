@@ -15,11 +15,14 @@ parser.add_argument("--iter", type=int, required=True)
 parser.add_argument("--gpu", type=int, required=True)
 parser.add_argument("--port", type=int, required=True)
 parser.add_argument("--mode", type=str, required=True, choices=["gen", "eval_train", "eval_dev", "eval_test"])
+parser.add_argument("--b", type=int, required=False)
+parser.add_argument("--e", type=int, required=False)
+parser.add_argument("--attemps", type=int, required=False)
 args = parser.parse_args()
 
 ########################################################
 sos_port = 8050 + 4*args.gpu + args.port
-sos_data_path = f"data/sos/iteration_{args.iter}" if args.mode == "gen" else None
+sos_data_path = f"data/sos/iteration_{args.iter}/b{args.b}_e{args.e}_a{args.attemps}" if args.mode == "gen" else None
 sos_questions_path = (f"questions/train_{4*args.iter + args.port}.txt" if args.mode == "gen" 
                      else f"questions/train_{4*(args.iter-1)}.txt" if args.mode == "eval_train" 
                      else f"questions/dev.txt" if args.mode == "eval_dev" 
@@ -101,16 +104,16 @@ def plot_tokens_usage(stats: Dict):
     plt.savefig(save_path)
     plt.close()
 
-def main():
+def main_eval():
     print_config()
     with open(sos_questions_path, "r") as f:
         questions = ["Q | " + line.strip() + "\n" for line in f]
     
     random.shuffle(questions)
     
-    stats = {"correct": 0, "incorrect": 0, "correct_tokens_usage": [], "incorrect_tokens_usage": [], "collected": []}
+    stats = {"correct": 0, "incorrect": 0, "correct_tokens_usage": [], "incorrect_tokens_usage": []}
     batch_size = 50
-    attemps = 10 if args.mode == "gen" else 5
+    attemps = args.attemps if args.attemps else 5
     
     for j in range(attemps):
         for i in range(0, len(questions), batch_size):
@@ -124,31 +127,63 @@ def main():
                 if evaluate_solution(question, completion):
                     stats["correct"] += 1
                     stats["correct_tokens_usage"].append(tokens_used)
-                    stats["collected"].append({
-                        "prompt": question,
-                        "completion": f"<START_THOUGHT>\nN1->Q | {completion}<END_ANSWER>"
-                    })
                 else:
                     stats["incorrect"] += 1
                     stats["incorrect_tokens_usage"].append(tokens_used)
             
             print(f"Batch {i//batch_size+1} done")
-            if args.mode == "gen":
-                print(f"SoS examples collected: {len(stats['collected'])}")
-            else:
-                print(f"Current Accuracy: {stats['correct']/(stats['correct'] + stats['incorrect'])*100:.2f}%")
-    
-    if args.mode == "gen":
-        unique_questions = set()
-        deduplicated = []
-        for item in stats["collected"]:
-            if item["prompt"] not in unique_questions:
-                unique_questions.add(item["prompt"])
-                deduplicated.append(item)
-        export_data(deduplicated)
-    else:
+            print(f"Current Accuracy: {stats['correct']/(stats['correct'] + stats['incorrect'])*100:.2f}%")
         print(f"Final Accuracy: {stats['correct']/(stats['correct'] + stats['incorrect'])*100:.2f}%")
         plot_tokens_usage(stats)
-        
+
+def main_gen():
+    print_config()
+    with open(sos_questions_path, "r") as f:
+        questions = ["Q | " + line.strip() + "\n" for line in f]
+    
+    random.shuffle(questions)
+    
+    stats = {"collected": []}
+    batch_size = 50
+    attemps = args.attemps if args.attemps else 5
+
+    unsolved_questions = questions.copy()  # Create a copy to avoid modifying original list
+    gen_data = []
+    
+    for j in range(attemps):
+        # Process only unsolved questions
+        for i in range(0, len(unsolved_questions), batch_size):
+            batch = unsolved_questions[i:min(i+batch_size, len(unsolved_questions))]
+            sos_results = requests.post(
+                url=f"http://127.0.0.1:{sos_port}/sos-prediction",
+                json={"questions": batch, "temperature": 1.0},
+            ).json()
+            
+            questions_to_remove = []
+            
+            for question, completion, tokens_used in zip(batch, sos_results['completions'], sos_results['tokens_usage']):
+                if evaluate_solution(question, completion):
+                    gen_data.append({
+                        "prompt": question,
+                        "completion": f"<START_THOUGHT>\nN1->Q | {completion}<END_ANSWER>"
+                    })
+                    questions_to_remove.append(question)
+            
+            for question in questions_to_remove:
+                unsolved_questions.remove(question)
+                
+            print(f"Batch {i//batch_size+1} done")
+            print(f"SoS examples collected: {len(gen_data)}")
+            print(f"Remaining unsolved questions: {len(unsolved_questions)}")
+
+    export_data(gen_data)
+
 if __name__ == "__main__":
-    main() 
+    if args.mode == "gen":
+        main_gen()
+    elif args.mode == "eval_train":
+        main_eval()
+    elif args.mode == "eval_dev":
+        main_eval()
+    elif args.mode == "eval_test":
+        main_eval()

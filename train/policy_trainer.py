@@ -67,6 +67,7 @@ class PolicyTrainer:
             
             bf16=True,
             dataloader_num_workers=64,
+            dataloader_drop_last=True,
             save_safetensors=False,
             
             push_to_hub=True,

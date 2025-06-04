@@ -1,15 +1,15 @@
 sleep_seconds=30
 
 be=([0]="1,4" [1]="2,6" [2]="3,9" [3]="5,15" [4]="8,16" [5]="13,26" [6]="21,42")
-max_tokens=([0]="200" [1]="300" [2]="500" [3]="1000" [4]="2000" [5]="3000" [6]="5000")
+max_tokens=([0]="200" [1]="300" [2]="500" [3]="1000" [4]="1500" [5]="5000" [6]="10000")
 
-for port in 0 1 2; do
-  for gpu in 0 1 2 3 4 5 6; do
-    iter=1
+for port in 3; do
+  for gpu in 4; do
+    iter=2
     pair=${be[$((gpu))]}
     b=${pair%,*}
     e=${pair#*,}
-    epochs=$(( 16 + (8 * port) ))
+    epochs=8
     tokens=${max_tokens[$gpu]}
 
     tmux new-session -d -s "sos_gpu${gpu}_port${port}" \
