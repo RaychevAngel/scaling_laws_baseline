@@ -19,7 +19,7 @@ class MCTSTree_Evaluate(MCTSTree):
     def _get_search_result(self):
         """Track the favourite trajectory through the tree and record result."""        
         current = self.root
-        while current.has_children:
+        while len(current.children) > 0:
             current = current.favourite_child
         # Check if the final node is actually terminal before evaluating
         if current.is_terminal:
@@ -74,24 +74,8 @@ class RunMCTS_Evaluate(RunMCTS):
     
     def __init__(self, config: Dict, policy_value_fn: Callable):
         super().__init__(config, policy_value_fn)
-        
-        # Load questions and initialize forest
-        self.questions_test = self._load_questions()
-        self.forest_test = self._initialize_forest()
-
-    def _load_questions(self) -> List[str]:
-        """Load questions from configured file."""
-        try:
-            test_questions = self._read_questions(self.config['test_questions_path'])
-            return test_questions
-        except FileNotFoundError as e:
-            print(f"Error loading questions: {e}")
-            return []
-
-    def _initialize_forest(self) -> MCTSForest_Evaluate:
-        """Initialize MCTS forest for evaluation."""
-        return MCTSForest_Evaluate(
-            questions=self.questions_test,
+        self.forest = MCTSForest_Evaluate(
+            questions=self.questions,
             policy_value_fn=self.policy_value_fn,
             max_expansions=self.config['max_expansions'],
             c_explore=self.config['c_explore'],
@@ -101,24 +85,15 @@ class RunMCTS_Evaluate(RunMCTS):
     def export_evaluation_results(self, accuracy: float) -> None:
         """Export evaluation results and configuration as a YAML file."""
         try:
-            filepath = f"{self.config['export_data_path']}.yaml"
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            result = {**self.config, 'accuracy': accuracy, 
-                     'timestamp': datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            os.makedirs(self.config['export_data_path'], exist_ok=True)
+            file_path = os.path.join(self.config['export_data_path'], f"{timestamp}.yaml")
             
-            existing_data = []
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, 'r') as f:
-                        content = yaml.safe_load(f)
-                        if content:
-                            existing_data = content if isinstance(content, list) else [content]
-                except Exception:
-                    pass
-                    
-            with open(filepath, 'w') as f:
-                yaml.dump(existing_data + [result], f, default_flow_style=False)
-            print(f"Results saved to {filepath}")
+            result = {**self.config, 'accuracy': accuracy}
+            
+            with open(file_path, 'w') as f:
+                yaml.dump(result, f, default_flow_style=False)
+            print(f"Results saved to {file_path}")
         except Exception as e:
             print(f"Error exporting results: {e}")
             import traceback
@@ -126,9 +101,9 @@ class RunMCTS_Evaluate(RunMCTS):
 
     async def _run_implementation(self):
         """Run evaluation and return results."""
-        monitor_task = asyncio.create_task(self._monitor_collection([self.forest_test]))
+        monitor_task = asyncio.create_task(self._monitor_collection([self.forest]))
         try:
-            accuracies = await self.forest_test.run_forest()
+            accuracies = await self.forest.run_forest()
             self.export_evaluation_results(0.0)
             print("\n" + 20*"=" + "\n")
             for (max_expansions, accuracy) in accuracies.items():

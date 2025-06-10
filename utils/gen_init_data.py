@@ -56,9 +56,9 @@ def process_calculation(numbers, operations, pattern, min_value = 1, max_value =
                 eval(f"(({numbers[0]}{operations[0]}{numbers[1]}){operations[1]}{numbers[2]}){operations[2]}{numbers[3]}")
             ]
             solution = [
-                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} (left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))})\n",
-                f"{int(results[0])}{operations[1]}{numbers[2]}={int(results[1])} (left: {', '.join(map(str, sorted([int(results[1]), numbers[3]])))})\n",
-                f"{int(results[1])}{operations[2]}{numbers[3]}={int(results[2])} (left: {int(results[2])})\n"
+                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} Left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))}\n",
+                f"{int(results[0])}{operations[1]}{numbers[2]}={int(results[1])} Left: {', '.join(map(str, sorted([int(results[1]), numbers[3]])))}\n",
+                f"{int(results[1])}{operations[2]}{numbers[3]}={int(results[2])} Left: {int(results[2])}\n"
             ]
             expr = f"(({numbers[0]}{operations[0]}{numbers[1]}){operations[1]}{numbers[2]}){operations[2]}{numbers[3]}"
         else:  # (a op1 b) op3 (c op2 d)
@@ -68,9 +68,9 @@ def process_calculation(numbers, operations, pattern, min_value = 1, max_value =
                 eval(f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})")
             ]
             solution = [
-                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} (left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))})\n",
-                f"{numbers[2]}{operations[1]}{numbers[3]}={int(results[1])} (left: {', '.join(map(str, sorted([int(results[0]), int(results[1])])))})\n",
-                f"{int(results[0])}{operations[2]}{int(results[1])}={int(results[2])} (left: {int(results[2])})\n"
+                f"{numbers[0]}{operations[0]}{numbers[1]}={int(results[0])} Left: {', '.join(map(str, sorted([int(results[0]), numbers[2], numbers[3]])))}\n",
+                f"{numbers[2]}{operations[1]}{numbers[3]}={int(results[1])} Left: {', '.join(map(str, sorted([int(results[0]), int(results[1])])))}\n",
+                f"{int(results[0])}{operations[2]}{int(results[1])}={int(results[2])} Left: {int(results[2])}\n"
             ]
             expr = f"({numbers[0]}{operations[0]}{numbers[1]}){operations[2]}({numbers[2]}{operations[1]}{numbers[3]})"
         
@@ -133,7 +133,7 @@ def export_data(policy_data_train, value_data_train):
     Dataset.from_list(value_data_train).save_to_disk("data/value/iteration_0")
 
 # --- Main dataset creation function ---
-def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_examples_per_positive=9):
+def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_examples_per_positive=1):
     """Create the full dataset for arithmetic reasoning problems."""
     
     # 1. Generate all possible problems
@@ -206,8 +206,10 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
     save_questions(train_questions_splits, dev_questions, test_questions)
     
     # 7. Create policy and value data only for train_0
-    print("Creating policy and value data for train_0...")
+    print("Creating policy and value data for train_0, train_1, train_2, train_3...")
     train_policy_data, train_value_data = [], []
+
+    pbar = tqdm(total=len(train_splits[0] + train_splits[1] + train_splits[2] + train_splits[3]), desc="Generating synthetic policy and value data")
     for p in train_splits[0] + train_splits[1] + train_splits[2] + train_splits[3]:
         q, sa = p['question'] + '\n', p['solution'] + p['answer']
         
@@ -223,20 +225,19 @@ def create_dataset(range_start, range_end, operations=["+", "-", "*", "/"], neg_
             "labels": [1.0, 1.0, 1.0, 1.0, 1.0]
         })
         
-        # Generate negative examples (9 per positive example)
         negative_examples_generated = 0
-        with tqdm(total=neg_examples_per_positive, desc=f"Generating negative examples for a problem", leave=False) as pbar:
-            max_attempts = neg_examples_per_positive * 3  # Allow more attempts to find enough negative examples
-            attempts = 0
-            
-            while negative_examples_generated < neg_examples_per_positive and attempts < max_attempts:
-                if neg_ex := generate_random_negative_example(p):
-                    train_value_data.append(neg_ex)
-                    negative_examples_generated += 1
-                    pbar.update(1)
-                attempts += 1
+        attempts = 0
+        while negative_examples_generated < neg_examples_per_positive and attempts < neg_examples_per_positive * 2:
+            if neg_ex := generate_random_negative_example(p):
+                train_value_data.append(neg_ex)
+                negative_examples_generated += 1
+            attempts += 1
+        pbar.update(1)
+    pbar.close()
+    print(f"Generated {len(train_policy_data)} synthetic policy data")
+    print(f"Generated {len(train_value_data)} synthetic value data")
     
-    # 8. Export data for train_0
+    # 8. Export data for train_0, train_1, train_2, train_3
     print("Exporting data to files...")
     export_data(train_policy_data, train_value_data)
     print("Dataset creation completed successfully!")

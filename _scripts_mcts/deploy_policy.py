@@ -17,12 +17,12 @@ policy_model_port = 8050 + 4*args.gpu + 2*args.port
 ########################################################
 
 policy_server = PolicyServer(
-    policy_model="AngelRaychev/0.5B-policy-iteration_" + str(policy_model_checkpoint),
+    policy_model="AngelRaychev/1.5B-policy-iteration_" + str(policy_model_checkpoint),
     revision=None,
     host="127.0.0.1",
     port=policy_model_port,
     endpoint="/policy-prediction",
-    gpu_memory_utilization=0.22
+    gpu_memory_utilization=0.45
     )
 
 policy_server.start()

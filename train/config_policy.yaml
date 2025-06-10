@@ -1,17 +1,15 @@
+# The rest of params are defined in scripts_mcts/train_policy.py
+
 # Model and dataset configuration
-model_name: AngelRaychev/0.5B-policy-iteration_
+model_name: AngelRaychev/1.5B-policy-iteration_
 revision: None
-hub_model_id: AngelRaychev/0.5B-policy-iteration_
+hub_model_id: AngelRaychev/1.5B-policy-iteration_
 dataset_file: data/policy/iteration_
-plot_path: logs/training/policy/iteration_
+plot_path: logs/mcts/training/policy/iteration_
 device: cuda
 
 # Optimization parameters
-learning_rate: 5e-5
-per_device_train_batch_size: 128
 lr_scheduler_type: "constant"
-gradient_accumulation_steps: 1
 
-# Convergence criteria
-logging_steps: 5
-
+# Logging parameters
+logging_steps: 1

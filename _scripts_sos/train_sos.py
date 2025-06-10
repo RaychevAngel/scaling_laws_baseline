@@ -1,6 +1,5 @@
 import yaml
 import os
-from train.policy_trainer import PolicyTrainer
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -16,6 +15,9 @@ args = parser.parse_args()
 checkpoint = args.iter
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu) 
 ########################################################s
+
+from train.policy_trainer import PolicyTrainer
+
 if args.b is not None and args.e is not None:
     be_extension = f"b{args.b}_e{args.e}"
 else:

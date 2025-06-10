@@ -1,22 +1,17 @@
+# The rest of params are defined in scripts_mcts/evaluate.py
+
 # Server configuration
 host: "127.0.0.1"
 policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
 value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
 # Model configuration
-policy_model: "AngelRaychev/0.5B-policy-iteration_"  # Base name for policy model
-value_model: "AngelRaychev/0.5B-value-iteration_"    # Base name for value model
+policy_model: "AngelRaychev/1.5B-policy-iteration_"  # Base name for policy model
+value_model: "AngelRaychev/1.5B-value-iteration_"    # Base name for value model
 
 # MCTS parameters
-branch_factor: 3
-max_expansions: [20]
 temperature: 1.0
 c_explore: 0.3
-batch_size: 50
-
-# Evaluation configuration
-stats_interval: 30
 
 # Data paths
-test_questions_path: "questions/dev.txt"
-export_data_path: "logs/evaluation/iteration_"
+export_data_path: "logs/mcts/evaluation/iteration_"

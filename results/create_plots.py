@@ -29,6 +29,30 @@ data = {
     (55, 220): [18.77, 21.57, 42.80, 43.30, 44.67, 44.53, 44.37],
 }
 
+data_sos_mcts = {
+    (1,   4): [21.27, 22.51, 22.33],  # SoS, SoS+STaR, Best MCTS
+    (2,   6): [25.67, 26.53, 27.33],  # SoS, SoS+STaR, Best MCTS
+    (3,   9): [29.57, 30.45, 32.57],  # SoS, SoS+STaR, Best MCTS
+    (5,  15): [33.48, 34.45, 37.33],  # SoS, SoS+STaR, Best MCTS
+    (8,  16): [35.06, 36.17, 38.87]   # SoS, SoS+STaR, Best MCTS
+}
+
+# Create a new plot for SoS comparison
+plt.figure()
+x_values = [b*e*20 for (b, e) in data_sos_mcts.keys()]  # Multiply b*e by 20
+for i in range(3):
+    y_values = [values[i] for values in data_sos_mcts.values()]
+    labels = ['SoS', 'SoS + STaR', 'Best MCTS']
+    plt.plot(x_values, y_values, marker='o', label=labels[i])
+
+plt.xlabel('tokens')
+plt.ylabel('Accuracy %')
+plt.xscale('log')
+plt.legend(fontsize='small')
+plt.title('SoS vs. SoS+STaR vs. Best MCTS')
+plt.savefig('sos_comparison.png')
+plt.show()
+
 # Prepare x and y for each curve, removing points where a later x has a higher y (make curves non-decreasing)
 filtered_xs = []
 filtered_ys = []
@@ -47,7 +71,7 @@ for y_curve in zip(*data.values()):
     filtered_ys.append(filtered_y)
 
 for i, (x, y) in enumerate(zip(filtered_xs, filtered_ys)):
-    if i > 1:
+    if i > -1:
         plt.plot(x, y, marker='o', label=f'Checkpoint {i+1}')
     
 
@@ -55,6 +79,6 @@ plt.xlabel('tokens')
 plt.ylabel('Accuracy %')
 plt.xscale('log')
 plt.legend(fontsize='small')
-plt.title('Accuracy vs. Tokens')
-plt.savefig('plot*.png')
+plt.title('MCTS Accuracy vs. Tokens')
+plt.savefig('plot.png')
 plt.show()

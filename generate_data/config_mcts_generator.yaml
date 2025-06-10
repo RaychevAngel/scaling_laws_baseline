@@ -1,26 +1,21 @@
+# The rest of params are defined in scripts_mcts/generate_data.py
+
 # Server configuration
 host: "0.0.0.0"
 policy_endpoint: "/policy-prediction"  # API endpoint for policy predictions
 value_endpoint: "/value-prediction"  # API endpoint for value predictions
 
 # Model configuration
-policy_model: "AngelRaychev/0.5B-policy-iteration_"
-value_model: "AngelRaychev/0.5B-value-iteration_"
+policy_model: "AngelRaychev/1.5B-policy-iteration_"
+value_model: "AngelRaychev/1.5B-value-iteration_"
 
 # MCTS parameters
-branch_factor: 14
-max_expansions: [37]
 temperature: 1.0
 c_explore: 0.3
-batch_size: 30
-
-# Data paths
-train_questions_path: "questions/train_"
 
 # Output paths for generated data
 policy_data_path: "data/policy/iteration_"
 value_data_path: "data/value/iteration_"
 sos_data_path:  "data/sos/iteration_0"
 
-# Runtime configuration
-stats_interval: 30 
+questions_path: "questions/train_"

@@ -22,11 +22,6 @@ class MCTSNode:
         self.labels = []
         self.is_terminal = "The answer is:" in self.state
 
-    @property
-    def is_visited(self) -> bool: return self.visit_count > 0
-    @property
-    def has_children(self) -> bool: return len(self.children) > 0
-
     def add_children(self, state_values: list[tuple[str, float]]):
         """Add child nodes with their value estimates"""
         self.children.extend([MCTSNode(state=state, parent=self, visit_count=0, 
@@ -88,7 +83,7 @@ class MCTSNode:
     @property
     def favourite_child(self) -> 'MCTSNode':
         """Return child with highest visit count, breaking ties with Q value"""
-        if not self.has_children:
+        if len(self.children) == 0:
             raise ValueError("Node has no children")
         return max(self.children, key=lambda child: child.action_value)
 
@@ -157,17 +152,11 @@ class MCTSTree:
         node.add_children(new_states)
         
         # Create a new list of valid children
-        valid_children = []
         for child in node.children:
-            if self._extract_action(child) != "":
-                valid_children.append(child)
-                if child.is_terminal:
-                    self.terminal_leaves.append(child)
-                else:
-                    self.non_terminal_leaves.append(child)
-        
-        # Replace the children list with valid children
-        node.children = valid_children
+            if child.is_terminal:
+                self.terminal_leaves.append(child)
+            else:
+                self.non_terminal_leaves.append(child)
 
         if node.children:
             self.non_terminal_leaves.remove(node)
@@ -182,17 +171,17 @@ class MCTSTree:
         results = {}
         for max_expansions in sorted(self.max_expansions):
             while self.expansion_count < max_expansions and self.non_terminal_leaves:
-                if not current.is_visited:
+                if current.visit_count == 0:
                     self._nodes.append(current)
                     self._idx[current] = len(self._nodes) - 1
                 
-                if current.has_children:
+                if len(current.children) > 0:
                     current = self.select_child(current)
                 elif current.is_terminal:
                     label = self._handle_terminal_node(current)
                     self.backpropagate(current, label, True)
                     current = self.root
-                elif not current.is_visited:
+                elif current.visit_count == 0:
                     self.backpropagate(current, current.value_estimate, False)
                     current = self.root
                 else:
@@ -203,7 +192,8 @@ class MCTSTree:
                         print(f"Expansion error at state '{current.state}': {e}")
                         break
                 await asyncio.sleep(0)
-            
+            #if current.children:
+            #    print(self.question+current.children[0].state)
             # Visualization is disabled by default
             self.visualize_tree(enable=False)
             results[max_expansions] = self._get_search_result()
@@ -220,7 +210,7 @@ class MCTSTree:
             while q:
                 node = q.pop(0)  # Use FIFO queue to process breadth-first
                 nodes.append(node)
-                values.append(node.action_value)
+                values.append(node.value_estimate)
                 q.extend(node.children)
             def _value_to_hex(v):
                 """blue (low) --> red (high) gradient."""
@@ -232,10 +222,10 @@ class MCTSTree:
             for idx, node in enumerate(nodes):
                 nid = f"n{idx}"
                 node._dot_id = nid                         # stash for edges
-                label = f"{self.question}\n {node.state}{node.action_value:.3f}\n{node.visit_count}"
+                label = f"{self.question}{node.state}{node.value_estimate:.3f}\n{node.visit_count}"
                 dot.node(nid, label=label,
                         style="filled",
-                        fillcolor=_value_to_hex(node.action_value))
+                        fillcolor=_value_to_hex(node.value_estimate))
         
             for node in nodes:
                 for child in node.children:
@@ -363,11 +353,16 @@ class RunMCTS:
         self.config = config
         self.start_time = time.time()
         self.policy_value_fn = policy_value_fn
+        self.questions = self._load_questions()
         
-    def _read_questions(self, path: str) -> List[str]:
+    def _load_questions(self) -> List[str]:
         """Read questions from a file"""
-        with open(path, 'r') as f:
-            return [line.strip() + '\n' for line in f]
+        try:
+            with open(self.config['questions_path'], 'r') as f:
+                return [line.strip() + '\n' for line in f]
+        except FileNotFoundError as e:
+            print(f"Error loading questions: {e}")
+            return []
             
     async def _monitor_collection(self, forests):
         """Monitor collection progress"""

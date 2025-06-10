@@ -17,12 +17,12 @@ value_model_port = 8050 + 4*args.gpu + 2*args.port + 1
 ########################################################
 
 value_server = ValueServer(
-    value_model="AngelRaychev/0.5B-value-iteration_" + str(value_model_checkpoint),
+    value_model="AngelRaychev/1.5B-value-iteration_" + str(value_model_checkpoint),
     revision=None,
     host="127.0.0.1",
     port=value_model_port,
     endpoint="/value-prediction",
-    gpu_memory_utilization=0.23
+    gpu_memory_utilization=0.45
     )
 
 value_server.start()

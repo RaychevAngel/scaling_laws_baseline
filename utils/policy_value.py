@@ -33,6 +33,10 @@ class PolicyValueFunction:
                 return [[] for _ in qs]
                 
             policy_results = policy_resp.json()['results']
+            if len(policy_results) != len(qs):
+                print(f"Policy results length mismatch: expected {len(qs)}, got {len(policy_results)}")
+                return [[] for _ in qs]
+            
             # Process policy results to get next states
             next_states = []
             for (question, state), actions in zip(qs, policy_results):
@@ -58,12 +62,19 @@ class PolicyValueFunction:
                 
             values = value_resp.json()['results']
             
+            # Validate that value results match expected length
+            expected_value_count = sum(len(states) for states in next_states)
+            if len(values) != expected_value_count:
+                print(f"Value results length mismatch: expected {expected_value_count}, got {len(values)}")
+                return [[] for _ in qs]
+            
             # Organize results
             result = [[] for _ in qs]
             positions = [(i, j) for i, states in enumerate(next_states) for j in range(len(states))]
+            
             for (i, j), value in zip(positions, values):
                 result[i].append((next_states[i][j], value))
-                
+            #print(result)
             return result
             
         except Exception as e:

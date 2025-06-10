@@ -17,6 +17,8 @@ args = parser.parse_args()
 checkpoint = args.iter 
 policy_port = 8050 + 4*args.gpu + 2*args.port
 value_port = 8050 + 4*args.gpu + 2*args.port + 1
+branch_factor = int(args.b)
+max_expansions = int(args.e)
 ########################################################
 
 async def main():
@@ -27,19 +29,17 @@ async def main():
     generate_config['value_model'] += str(checkpoint)
     generate_config['policy_data_path'] += str(checkpoint)
     generate_config['value_data_path'] += str(checkpoint)
-    generate_config['sos_data_path'] += f"_b{args.b}_e{args.e}"
-    generate_config['train_questions_path'] += str(2 + args.port) + ".txt"
+    generate_config['sos_data_path'] += f"_b{branch_factor}_e{max_expansions}"
+    generate_config['questions_path'] += str(4*checkpoint + args.gpu) + ".txt"
 
     generate_config['policy_port'] = policy_port
     generate_config['value_port'] = value_port
     
-    generate_config['branch_factor'] = int(args.b)
-    generate_config['max_expansions'] = [int(args.e)]
-    generate_config['temperature'] = 1.0
-    generate_config['c_explore'] = 0.3
+    generate_config['branch_factor'] = branch_factor
+    generate_config['max_expansions'] = [max_expansions]
+    generate_config['stats_interval'] = 60
 
-    forward_passes = 200
-    generate_config['batch_size'] = int(forward_passes / generate_config['branch_factor'])
+    generate_config['batch_size'] = int(200 / branch_factor)
 
     for key in generate_config.keys():
         print(key, generate_config[key])

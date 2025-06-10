@@ -50,7 +50,7 @@ class MCTSTree_Generate(MCTSTree):
 
     def _get_search_result(self):
         """Get generation results by collecting data from terminal nodes"""
-        solution_leaves = []
+        solution_leaf = None
         for leaf in self.terminal_leaves:
             label = leaf.evaluate_terminal_state(self.question)
             if label == 1:
@@ -58,7 +58,11 @@ class MCTSTree_Generate(MCTSTree):
                     "prompt": self.question,
                     "completion": leaf.state
                 })
-                solution_leaves.append(leaf)
+                if solution_leaf is None:
+                    solution_leaf = leaf
+                else:
+                    if solution_leaf.value_estimate < leaf.value_estimate:
+                        solution_leaf = leaf
             soft_values = []
             current = leaf
             while current:
@@ -71,9 +75,8 @@ class MCTSTree_Generate(MCTSTree):
                     "text": self.question + leaf.state,
                     "labels": soft_values[::-1]
                 })
-        if solution_leaves:
-            solution = solution_leaves[0]
-            answer = self._extract_action(solution)
+        if solution_leaf is not None:
+            answer = self._extract_action(solution_leaf)
             self.sos_data = {
                 "prompt": "Q | " + self.question,
                 "completion": "<START_THOUGHT>\n" + self._extract_full_trajectory() + "<END_THOUGHT>\n<START_ANSWER>\n" + answer + "<END_ANSWER>"
@@ -125,25 +128,7 @@ class RunMCTS_Generate(RunMCTS):
     
     def __init__(self, config: Dict, policy_value_fn: Callable):
         super().__init__(config, policy_value_fn)
-        self.questions = self._load_questions()
-        self.forest = self._initialize_forest()
-
-    @property
-    def total_api_calls(self) -> int:
-        """Calculate total API calls from forest."""
-        return self.forest.total_api_calls
-
-    def _load_questions(self) -> List[str]:
-        """Load questions from configured file."""
-        try:
-            return self._read_questions(self.config['train_questions_path'])
-        except FileNotFoundError as e:
-            print(f"Error loading questions: {e}")
-            return []
-
-    def _initialize_forest(self) -> MCTSForest_Generate:
-        """Initialize MCTS forest for data generation."""
-        return MCTSForest_Generate(
+        self.forest = MCTSForest_Generate(
             questions=self.questions,
             policy_value_fn=self.policy_value_fn,
             max_expansions=self.config['max_expansions'],
@@ -151,13 +136,13 @@ class RunMCTS_Generate(RunMCTS):
             batch_size=self.config['batch_size']
         )
 
+    @property
+    def total_api_calls(self) -> int:
+        """Calculate total API calls from forest."""
+        return self.forest.total_api_calls
+
     def export_data(self, data: Tuple[List, List, List]) -> None:
-        """
-        1. Load existing directory (or empty)
-        2. Append new data
-        3. Overwrite target dir with retries
-        4. On final failure, write to a timestamped sibling dir
-        """
+        """Export data to disk."""
         for key, idx in (("policy_data_path", 0), ("value_data_path", 1), ("sos_data_path", 2)):
             p = Path(self.config[key]); p.parent.mkdir(parents=True, exist_ok=True)
             try:
