@@ -18,6 +18,18 @@ logs/
 /logs/
 **/logs/
 
+# Exclude results directory
+results/
+/results/
+**/results/
+
+# Exclude shell scripts
+*.sh
+
+# Exclude specific Python files
+s.py
+z.py
+
 # OS-specific files
 .DS_Store
 Thumbs.db
